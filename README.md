@@ -1,93 +1,106 @@
 # side-project-saviour
 Vibe coding is expensive and developers are busy people! What if you could vibe code use and rotate between free coding harnesses while on the move?
 
-# Product Requirement Document (PRD): Mobile Cloud Coding Agent Control Plane
+# Product Requirement Document (PRD): Mobile Cloud Agent Control Plane
 
 ## 1. Executive Summary
 
-The goal of this project is to build a self-hosted, cloud-based control plane optimized for mobile web browsers. It enables developers to execute, manage, and monitor AI coding agent CLI harnesses remotely, review code changes, manage Git workflows, and preview dynamic web application interfaces directly from a smartphone.
+This document specifies the requirements for a self-hosted, cloud-based control plane optimized for mobile web browsers. The platform enables developers to execute, manage, and monitor AI coding agent CLI tools remotely, perform code reviews, manage Git workflows, and preview dynamic web application UIs straight from a smartphone screen.
+
+The architecture offloads local API key/harness management by embedding **OmniRoute** as a background AI gateway and relies on **`tmux`** to ensure persistent headless terminal sessions.
 
 ---
 
-## 2. Core Constraints & Objectives
-
-* **Mobile-First UX:** The interface must be tailored for vertical phone screens with touch-friendly navigation and no horizontal scroll clutter.
-* **Harness Agility:** The backend must remain agnostic to the underlying coding CLI (e.g., Aider, OpenCode, Claude CLI), enabling seamless rotation between tools and credentials.
-* **Persistent Sessions:** Unstable mobile connections or phone locks must not terminate running tasks or background build processes.
-* **Git as Source of Truth:** Code synchronization between cloud workspace, local environment, and production must strictly adhere to GitHub repository states.
-
----
-
-## 3. User Requirements & Technical Architecture
-
-### 3.1 Authentication & Security (KISS Principle)
-
-* **Email OTP Authentication:** Simple email-based login without passwords or social auth OAuth overhead.
-* **Verification Workflow:**
-* User inputs email address on the login screen.
-* System sends a 6-digit numeric OTP with a short Time-To-Live (TTL) (e.g., 5 minutes).
-* Successful validation yields a secure session token (JWT/Session Cookie) persistent across mobile browser refreshes.
-
-
-* **Single-Tenant Guardrails:** Access restricted exclusively to authorized owner email addresses.
-
-### 3.2 Workspace & CLI Harness Execution
-
-* **Cloud Execution Environment:** Persistent containerized Linux workspace (Docker) hosting project code and CLI tooling.
-* **Harness Rotation Engine:** A backend wrapper that accepts prompt inputs from the UI and pipes them to designated CLI harnesses, swapping API keys or tools dynamically based on active credit availability.
-* **Real-time Streaming:** Input typed into the mobile interface acts as `stdin` for the active CLI tool; `stdout` and `stderr` stream back to the UI in real time.
-
-### 3.3 Mobile UX & Multi-Tab Workspace
-
-To maximize usability on mobile aspect ratios, the UI implements a tabbed/panel navigation paradigm:
-
-#### Panel A: Agent Chat & Control
-
-* **Prompt Bar:** Input area to submit instructions directly to the active CLI harness.
-* **Harness Selector:** Interface element to select which underlying CLI tool or credit profile executes the prompt.
-* **Lifecycle Buttons:** One-tap action triggers for quick operations:
-* View current Git Status / Diffs.
-* Stage & Commit changes.
-* Create GitHub Pull Request (PR) with auto-generated descriptions.
-
-
-
-#### Panel B: Terminal & Process Management
-
-* **Multi-Terminal Support:** Interface to view and switch between all active terminal instances (e.g., CLI Agent stdout, dev web server, background tasks).
-* **Persistence via Terminal Multiplexer:** Terminal instances backed by `tmux` headless sessions over WebSockets (`xterm.js` / `ttyd`), ensuring long-running builds or tasks continue uninterrupted when the phone screen turns off.
-
-#### Panel C: Live UI Preview
-
-* **Dynamic Reverse Proxy:** Built-in proxy router serving local development ports (e.g., Vite, Next.js on port 3000) inside an isolated preview pane.
-* **Viewport Controls:** Mobile-optimized preview panel with refresh, device dimensions toggle, and error logs panel.
-
-### 3.4 Git & Code Review Workflow
-
-* **Bi-Directional Sync:** Automatic fetch/pull before executing new agent sessions.
-* **Visual Diff Inspection:** Native mobile view to review modified, added, or deleted files before finalizing commits.
-* **PR Automation:** Seamless integration with GitHub API/CLI to push topic branches and open PRs without dropping down into manual command typing.
-
----
-
-## 4. Key Functional Scenarios
+## 2. System Architecture & Component Roles
 
 ```
-[ Mobile Login ] ──► [ Enter OTP ] ──► [ Select Active CLI Harness ]
-                                                 │
-   ┌─────────────────────────────────────────────┴─────────────────────────────────────────────┐
-   ▼                                             ▼                                             ▼
-[ Chat Tab ]                                  [ Terminal Tab ]                             [ Preview Tab ]
-• Send prompts to CLI                          • Switch tmux sessions                        • Hot-reloading web UI
-• Stream agent actions                        • Monitor dev server logs                     • Viewport size toggling
-• Trigger "Review Diff" / "Create PR"         • Direct shell commands                       • Inspect console errors
+┌────────────────────────────────────────────────────────────────────────┐
+│                   Mobile Web UI (React / Next.js)                      │
+│   [ Auth Pane ] ── [ Agent Chat Pane ] ── [ Terminals ] ── [ Preview ]  │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ (WebSockets & Dynamic Reverse Proxy)
+┌───────────────────────────────────▼────────────────────────────────────┐
+│                    Cloud Host Workspace (Netcup/VPS)                   │
+│                                                                        │
+│   ├── Control Plane Engine (Node.js/Go backend daemon)                  │
+│   │   ├── Authentication & Token Validation (OTP)                      │
+│   │   ├── Terminal Manager (xterm.js ↔ tmux PTY bridge)               │
+│   │   └── Reverse Proxy (Routes dynamic dev ports to preview pane)     │
+│   │                                                                    │
+│   ├── Workspace Shell (tmux sessions)                                  │
+│   │   ├── Session 1: Coding Agent CLI (Aider / OpenCode / Claude Code) │
+│   │   └── Session 2+: Arbitrary Free Terminals & Dev Server           │
+│   │                                                                    │
+│   └── Local AI Gateway (OmniRoute service @ http://localhost:20128/v1) │
+│       └── Pools & rotates free/paid AI provider tokens automatically  │
+└────────────────────────────────────────────────────────────────────────┘
 
 ```
 
+### Architectural Responsibilities:
+
+* **OmniRoute (Background AI Router):** Handles token lifecycle, multi-provider quota fallbacks, and API account rotation. The agent CLI tools target OmniRoute’s OpenAI-compatible endpoint locally.
+* **Control Plane Daemon:** Manages browser sessions, exposes dynamic terminal streams over WebSockets, proxies local development ports (e.g., Vite/Next.js) into web viewports, and executes Git lifecycle actions.
+* **`tmux` Workspace Runtime:** Guarantees process persistence so long-running agent tasks, builds, or commands continue running even if the mobile device disconnects or locks its screen.
+
 ---
 
-## 5. Non-Functional Requirements
+## 3. Detailed Requirements
 
-* **Latency:** Low-latency WebSocket streaming for real-time terminal input/output responsiveness.
-* **Resource Isolation:** Dev container resource limits defined to ensure dev servers and AI CLI engines do not starve the control plane process.
-* **Reconnection Resilience:** WebSockets automatically attempt reconnects upon network switches (e.g., Wi-Fi to Cellular) without resetting terminal history.
+### 3.1 Authentication & Access Control (KISS Principle)
+
+* **Single-Tenant Guardrails:** Access is strictly limited to authorized owner email addresses.
+* **Passwordless OTP Login:**
+* User submits an email address on the initial login screen.
+* System generates a 6-digit numeric OTP with a short Time-To-Live (5-minute TTL).
+* Validating the code yields an HTTP-only session cookie persistent across browser refreshes.
+
+
+* **Headless Out-of-Band OAuth Flow:**
+* Initial browser-based CLI authentication (e.g., GitHub CLI, third-party services) is handled via SSH port forwarding (`ssh -L`) or a lightweight containerized headless browser (`noVNC + Chromium`) running on the host.
+
+
+
+### 3.2 Workspace & Process Persistence
+
+* **State Preservation:** All active shells and agent routines execute within background `tmux` sessions on the host machine.
+* **Network Disconnection Resilience:** Closing the mobile browser, changing networks (Wi-Fi to Cellular), or phone lock states does not interrupt running tasks. Re-opening the UI automatically re-attaches to the active streams.
+
+### 3.3 Mobile UI Panels (Optimized for Mobile Viewports)
+
+#### Panel A: Agent Chat & Actions
+
+* **Prompt Input:** Mobile-optimized prompt box sending user commands directly into `stdin` of the running CLI agent session.
+* **Stream Output:** Live rendering of agent CLI `stdout`/`stderr` formatted with ANSI color decoding.
+* **One-Tap Git Actions:** Dedicated visual buttons for rapid lifecycle commands:
+* **Status & Diff:** Opens a visual modal detailing modified, added, and deleted files.
+* **Commit & Push:** Automatically stages changes, prompts for a commit message, and pushes to GitHub.
+* **Create PR:** Pushes current working branch to GitHub and triggers PR creation via GitHub API/CLI.
+
+
+
+#### Panel B: Terminal Switcher (Multi-Terminal View)
+
+* **Terminal Carousel/Tabs:** Ability to switch between the main CLI Agent execution stream and arbitrary headless terminal shells (0 or more).
+* **Terminal Engine:** Integrated `xterm.js` over WebSocket connection providing full terminal interaction (interactive prompts, key bindings, scrolling).
+* **Server Tailing:** Secondary terminals reserved for monitoring dev server logs (`npm run dev`, Docker build logs).
+
+#### Panel C: Live UI Preview Pane
+
+* **Dynamic Proxy Routing:** Reverse proxy exposing local app build ports (e.g., `localhost:3000`) securely to the mobile browser view.
+* **Iframe Controls:** Top navigation bar inside the preview panel containing manual refresh, active dev port selector, and mobile/desktop viewport toggle buttons.
+
+---
+
+## 4. Hardware & Hosting Baseline
+
+* **CPU & RAM Target:** 2 vCPUs / 4 GB RAM minimum (Sweet spot for running Node dev servers, OmniRoute, `tmux`, and fast TypeScript compile toolchains concurrently without OOM crashes).
+* **Recommended Compute Hosts:** Netcup (VPS 1000/Lite series) or OVHcloud VPS for optimal price-to-performance; or a local home machine exposed via a Tailscale mesh network.
+
+---
+
+## 5. Summary of Key Scenarios
+
+1. **Prompt & AI Routing:** User types a request in **Panel A** $\rightarrow$ Control plane passes text to CLI Agent $\rightarrow$ CLI Agent calls local **OmniRoute** endpoint $\rightarrow$ OmniRoute automatically picks an available free AI provider quota $\rightarrow$ Response streams back to user's phone in real time.
+2. **Web App Testing:** CLI Agent edits frontend code $\rightarrow$ Dev server in **Panel B** triggers hot reload $\rightarrow$ User switches to **Panel C** to test UI changes directly in an embedded preview.
+3. **Review & PR Creation:** User reviews changes in the Diff view $\rightarrow$ Taps **"Create PR"** $\rightarrow$ Code is pushed to GitHub and a PR link is generated, completing the workflow without typing manual git commands on a phone keyboard.
