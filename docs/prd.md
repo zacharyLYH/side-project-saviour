@@ -266,7 +266,7 @@ No separate setup. The secretary rides the credentials you already authenticated
 
 The secretary is not a text box. It has real hands, for environment work only:
 
-- **Read** — project.json, harness plugin files, harness config files in the container's home volume, container state (what's running, what's listening, auth-chip status).
+- **Read** — project.json, harness plugin files, harness config files in the container's home volume, container state (what's running, what's listening, auth-chip status), and the event log (§12) — what happened and why.
 - **Apply** — confirmed edits to the same three config categories, via the container file primitive.
 - **Probe** — auth probes and port probes, when asked.
 
@@ -302,19 +302,54 @@ You ask, it acts. Nothing unsolicited.
 
 ---
 
-## 12. Deferred, not deleted
+## 12. Observability
+
+Developers will want to know what their system is doing. Observability is for the operator of the box: understanding your own tool and your own usage. Nothing leaves the box.
+
+It is also a **development aid, present from day 1**: events are written while we build the thing, so the system becomes self-explanatory exactly when it's being debugged — by you and by the secretary.
+
+### How we collect
+
+Nothing is telemetry. Each surface collects from the source that already owns the fact — the server, Docker, or the harness itself. Three mechanisms, no pipeline:
+
+1. **Event log** — the server's own audit trail. One JSONL line per fact the server caused or detected: login, project created/stopped/deleted, image built, session attach/detach, action run, env changed, and `error` lines. `$DATA_DIR/events.log`, append-only, read API in Phase 2. Reading it *is* history.
+2. **On-demand reads** — the current state of Docker and the containers, queried when a page loads and polled while it's open: `docker stats`/inspect for live state, `tmux list-sessions` for sessions, `docker logs` for container output, port probes for preview, disk/uptime for health. No persistence — the page paints whatever the world looks like now.
+3. **The harnesses' own records** — harnesses already record usage: opencode keeps its sessions and message history in its storage; aider keeps its conversation history and commits; freebuff similar. We read those files from the container's home volume (each builtin documents where, in the system guide). Server-side counts are the fallback, never the source of truth for what an agent did.
+
+The page **lives at the home screen, outside any project**: a top-level item to click into, not a project tab. It is the system view.
+
+### What gets surfaced, and how it's collected
+
+| Surface | Collected by | Collected when |
+|---|---|---|
+| Live state | on-demand reads: `docker stats`/inspect, `tmux list-sessions`, port probes | page load, then polled while open |
+| Usage — your workflow | event-log aggregates for *server activity* (launches, actions, session age) + harnesses' own records for *agent activity* (conversations, history) | read-time |
+| Logs | server log tail; `docker logs` per container | read-time, filterable |
+| Errors | `error` event lines + harness exit codes (the session wrapper already captures `$?`) | written at the moment, surfaced read-time |
+| Auth status | harness `auth` blocks + on-demand CLI/config probes | read-time |
+| Health | docker ping, disk free on `$DATA_DIR`, server version, uptime | page load |
+
+No Prometheus, no Grafana, no telemetry pipeline, no SaaS. One page in the browser, boring sources. The event log is exportable by copying the file; live state is not persisted, by design.
+
+### The secretary's debug source
+
+The same three sources are read-only probes for the secretary (§11). "Why did the build fail?" reads the event log; "what's actually running?" reads the containers; "what did the agent do?" reads the harness's own records. No special instrumentation — the sources already exist.
+
+---
+
+## 13. Deferred, not deleted
 
 Cut to "later, when a user actually hits the wall":
 
 - **Import/export.** Not built now. It is the future substrate for a repeatable experience: set up a machine once, restore projects anywhere. Export would be a portable snapshot (config + env names, never values) plus a `tar.gz` of the data dir. Import would recreate projects, re-enter secrets once, relaunch sessions. For v1, backup is simple: `$DATA_DIR` is one folder. Copy it.
 - **Harness version pins** and an admin update page. Pin via setup if you care.
 - **Headless-browser policy** and hard-blocks.
-- **Admin screen polish.** Keep a minimal projects / containers / sessions / errors page.
+- **Admin screen polish.** The observability page ships as tables + the raw event log. Pretty graphs and CSV/JSON export formats are later.
 - **Image-tag versioning machinery.**
 
 ---
 
-## 13. V1 scope
+## 14. V1 scope
 
 - [ ] System auth: email + one-time PIN → JWT, middleware on all requests
 - [ ] First-run: log in with email+PIN → land on projects → clone → ready; harness auth is on-demand
@@ -329,6 +364,7 @@ Cut to "later, when a user actually hits the wall":
 - [ ] Masked env editor (auth via API keys)
 - [ ] Device-flow login for interactive-CLI harnesses
 - [ ] The secretary: rides an authed CLI's credentials, dumb-bot chat + bounded config toolset, confirm-apply
+- [ ] Observability: append-only event log; live state, usage summary, log tails, errors, auth status, health
 - [ ] Self-host deployment: `docker compose up`, one volume
 
 ### Litmus test

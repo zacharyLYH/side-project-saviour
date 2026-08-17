@@ -10,6 +10,16 @@
 - Email in dev prints the PIN to the server log (a `Mailer` interface; SMTP is a prod-only implementation). No SMTP needed on a laptop.
 - Every phase adds a `make check` step next to `make dev` / `make test`.
 
+## Observability is a day-1 concern
+
+Three collection mechanisms, no metrics pipeline:
+
+1. **Event log** (`$DATA_DIR/events.log`, append-only JSONL, `GET /api/events`) — the server's own audit trail. Every phase emits what it causes: login, create/stop/delete, build, session attach/detach, action run, env change, error. Development debugging *is* reading it; the build is exercised through it.
+2. **On-demand reads** — the current state of Docker and the containers, queried at page load and polled while open: stats/inspect, `tmux list-sessions`, `docker logs`, port probes, disk/uptime. No persistence.
+3. **Harness-native records** — harnesses record their own usage (opencode's storage, aider's history, freebuff's). We read those files from the container's home volume; server-side counts are the fallback only. Phase 7 documents where each builtin records usage; Phase 11 harvests it; Phase 12's secretary reads all three sources for debugging.
+
+Placement: a top-level item on the home screen, outside any project — the system view, not a project tab.
+
 ## Phases at a glance
 
 | # | Phase | Core deliverable | Demonstrable with |
@@ -24,7 +34,7 @@
 | 8 | Preview & diff | port detect + reverse proxy + ports panel; git diff API+UI | http.server in container → URL |
 | 9 | Env editor & persistence | masked env, login-shell injection, volume survival | `$VAR` after restart |
 | 10 | Frontend completion & buttons | full UI, action buttons, creature-comfort keys, mobile | litmus test on a phone |
-| 11 | Packaging & self-hosting | server image, compose, quickstart, minimal admin | fresh box via `docker compose up` |
+| 11 | Packaging & self-hosting + observability | server image, compose, quickstart, observability page | fresh box via `docker compose up` |
 | 12 | The secretary (v1) | chat, system guide, tools, confirm-diff, wire-key/switch-model | the 4 v1 abilities on a fixture |
 
 ---
@@ -56,9 +66,11 @@
 - Harness plugin loader: scan `$DATA_DIR/harnesses/*.json`, validate schema (`name/command/install/auth`), parse `auth` block. One code path for builtins and user files.
 - Seed builtins (terminal, opencode, freebuff, aider) on first boot as real editable files.
 - Projects index (`$DATA_DIR/projects.json`) so the list renders without container scans.
+- Append-only event log (`$DATA_DIR/events.log`, JSONL) with a typed `Event` writer and `GET /api/events?after=<id>&limit=` (tail/pagination); the UI and the secretary both read history from it.
+- Every later phase emits lines (login, project create/stop/delete, session create/exit, action run, harness launched, error) and exercises them in its gate.
 - `weathervane` package for live container state — not needed until Phase 5; add stub.
 
-**Gate.** Unit tests for CRUD atomicity, loader, schema rejection, seeding idempotence (`seeded twice = same files`). `make dev` shows the seeded tree in logs.
+**Gate.** Unit tests for CRUD atomicity, loader, schema rejection, seeding idempotence (`seeded twice = same files`). Read API returns appended lines with correct pagination. `make dev` shows the seeded tree in logs.
 
 ---
 
@@ -86,6 +98,7 @@
 - Flow: request PIN for the configured `LOGIN_EMAIL` → rate-limit and expire PINs → verify → issue signed JWT (crypto/rand, expiry, `HttpOnly; SameSite=Strict` cookie).
 - Middleware: every `/api/*` and `/ws/*` route requires a valid JWT (except login/PIN routes). WebSocket handshake validates the cookie too.
 - Logged-out and logged-in UI states in the scaffolded frontend.
+- Emit `login` events (success/failure, never the token) on every flow.
 
 **Gate.** Unit tests: token signing/expiry, PIN expiry/rate-limit, middleware rejection. Manual: `make dev`, request PIN, see it in logs, complete login, hit authed endpoint. Document: this is not a SaaS identity system — one email, one person.
 
@@ -98,7 +111,7 @@
 **Scope.**
 - `POST /api/projects` `{repoUrl, branch?}` → clone to `$DATA_DIR/projects/<id>/repo` → Dockerfile check (missing ⇒ message; scaffold a minimal default on request) → `docker build` with logs streamed → `docker run` with volumes/limits/net → container ready.
 - `GET /api/projects`, `GET /api/projects/{id}` (state, live status), `POST /{id}/start|stop|restart`, `DELETE /{id}?scope=container|metadata|repo|all` with confirmation.
-- Create progress surfaced as `SPS_STEP` events (clone ✓, build ✓, running ✓) consumable by the UI later.
+- Create progress surfaced as event lines (`project.clone/build/run`); build failures land as `error` events; stop/start/delete emit `project.*` events.
 - Pin branch; default to remote default. Untracked scaffold: record that setup/start never auto-ran (Phase 7/10 adds actions).
 
 **Gate.** API smoke tests (`httptest` against a live server + host Docker): create a fixture repo, reach "Running", stop it (volumes survive), restart it, delete each scope. No UI required — proves it with curl.
@@ -113,6 +126,7 @@
 - `GET /ws/projects/{id}/sessions/{name}` bridging browser frames ↔ `docker exec -it tmux attach -t <name>`.
 - Protocol: `input`, `resize` (→ `ResizeExecTTY`), `output`, `exit`. Reconnect = fresh `tmux attach`; session keeps running on disconnect.
 - Minimal frontend terminal: xterm.js + `@xterm/addon-fit` in a temporary tab, resize on frame, desktop-width toggle.
+- Connections emit `terminal.attach/detach` events so the log shows who was in which terminal when.
 - Creature-comfort keys as a first cut: ↑, Ctrl-C, Ctrl-L, Tab, Esc → send keystroke frame (full strip lands in Phase 10).
 
 **Gate.** Open a project, open a terminal tab, run `echo hi` and a TUI (`top`), resize the window (browser and mobile), disconnect and reconnect → same scrollback. A Go test drives the WS client against a real session.
@@ -130,6 +144,8 @@
 - Install-on-demand: first launch runs the plugin's `install` in the container if the `command` is missing.
 - Builtins documented with runtime requirements (node for opencode/freebuff); missing runtime ⇒ visible failure with a hint.
 - Add-harness form writes a plugin file (form + folder are the same thing).
+- Each builtin documents where it records usage in the home volume (opencode storage dir, aider history, freebuff) — the observability page harvests these in Phase 11, the secretary reads them in Phase 12.
+- Emit `session.create/exit`, `harness.launch`, `validation.failed` events.
 
 **Gate.** Launch a fake CLI harness (fixture shell script) in a real container, list/kill/restart it, verify the `|| echo` failure path surfaces. Validation probe rejects a "not-a-CLI" fixture with the exact PRD message.
 
@@ -144,6 +160,7 @@
 - Authenticated reverse proxy (cookie in front), stream flush for SSE/WS (`FlushInterval`), no path rewriting — app served at origin root.
 - Preview UI: ports panel (port, URL, state), one-tap open.
 - Diff: `git status --porcelain -uno`, `git diff --numstat` → `{path, added, deleted}`, raw diff per file; "untracked: N files" note. Diff UI list + plain view.
+- Emit `preview.detected` / `preview.failed` events on port probes.
 
 **Gate.** Start `python3 -m http.server 8000` inside a project (via a button or terminal), see it in the ports panel, open the proxied URL from a phone over LAN. Make a change to the fixture repo and see it in Diff.
 
@@ -157,6 +174,7 @@
 - Env endpoints: `GET` (masked, reveal-one), `PUT` (upsert/remove) → writes `project.json` `env` (0600) and uploads `/root/.sps-env` into the container; `profile.d` snippet sources it in every login shell; new sessions see new env without a recreate.
 - Secrets never in `docker inspect`, logs, or the UI; project file 0600.
 - Persistence audit: repo volume, home volume, data dir — stop/start, server restart, compose down/up survival. Confirm delete scopes don't leak.
+- Emit `env.changed` events with names only — never values.
 - Restart behavior: sessions terminate on container restart; reopen relaunches them (state survives).
 
 **Gate.** Set `FOO=bar`, start a session, `echo $FOO` prints bar. `docker compose down && up`, project still lists, sessions relaunch, `FOO` still set. Reveal-one masked values in UI; assert logs contain no secret.
@@ -170,6 +188,7 @@
 **Scope.**
 - Full React UI: login, projects list, project page with tabs (Sessions, Terminal, Preview, Diff, Env), "＋ New Session", empty-state "Clone a repo →".
 - Action buttons: detected defaults (`package.json` scripts, Makefile, `go.mod`), custom `actions` (project file), "＋ Add" two-field form writing the file. Run in a session, stream output to terminal.
+- Emit `action.run` events for every button tap (harness name, command, exit code).
 - Full creature-comfort key strip (↑, Ctrl-C, Ctrl-L, Tab, Esc, ←/→), copy/paste, desktop-width mode, resize on keyboard open/rotation.
 - Mobile pass: portrait/landscape, safe-areas, touch targets.
 
@@ -184,10 +203,11 @@
 **Scope.**
 - Server container image (multi-stage: distroless + certs; the control plane only — socket mount does the rest).
 - `docker-compose.yml` (self-host): socket mount, data volume, ports `8080` + preview pool, `SMTP_*`, `LOGIN_EMAIL`.
-- Quickstart doc: one command to first project. Minimal admin page (projects/containers/sessions/errors) from PRD §12.
+- Quickstart doc: one command to first project.
+- Observability page (PRD §12) over all three collection mechanisms: live state (containers/sessions/stats via Docker), usage aggregates from `events.log` plus best-effort harness-native records read from the home volume, server + per-container log tails, errors list, auth status, health (disk/version/uptime). Server log tail via a bounded file reader; container log tail via `docker logs`. Placed as a top-level entry on the home screen, outside any project.
 - `make e2e`: runs the Phase 5–10 flow against the compose stack, verifying the "image ships images" path exactly as prod does.
 
-**Gate.** Fresh box (or `docker run` on a laptop), `docker compose up`, create + open a project from a phone using real SMTP. `make e2e` green.
+**Gate.** Fresh box (or `docker run` on a laptop), `docker compose up`, create + open a project from a phone using real SMTP. Observability shows live state + a populated `events.log` + an error you deliberately caused. `make e2e` green.
 
 ---
 
@@ -198,8 +218,8 @@
 **Scope.**
 - System guide (the "taught bounds" doc) shipped as markdown.
 - Chat bubble UI (projects screen + per project) that streams an LLM conversation using the authed CLI's provider/key (or `SPS_HELPER_API_KEY` override).
-- Tools (server-side, bounded): read project.json / harness plugins / harness config in home volume / container state; probe auth & ports; apply confirm-diff to the three config categories via the Phase 3 file primitive.
-- v1 abilities: wire-up-my-key (masked field per harness), switch-model (one-line config diff + confirm), suggest-buttons, where-do-i-stand (portfolio briefing).
+- Tools (server-side, bounded): read project.json / harness plugins / harness config in home volume / container state / **the event log** (tail + `since` filter, read-only); probe auth & ports; apply confirm-diff to the three config categories via the Phase 3 file primitive.
+- v1 abilities: wire-up-my-key (masked field per harness), switch-model (one-line config diff + confirm), suggest-buttons, where-do-i-stand (portfolio briefing, backed by the event log).
 - Bounds enforced in code, not prose: no repo/tmux write paths, secrets never in chat, dumb-bot (no polling/autonomy).
 
 **Gate.** With a real API key + a fixture container, run all four v1 abilities; each edit lands only after an explicit confirm; assert the toolset cannot reach a repo path (negative test). Confirm-diff unit tests.
@@ -208,8 +228,10 @@
 
 ## Later, not planned now
 
-Deferred per PRD §12: import/export (repeatable-experience substrate), harness version pins + admin update, headless-browser policy, image-tag versioning. Keep the "copy `$DATA_DIR`" backup story as the v1 story.
+Deferred per PRD §13: import/export (repeatable-experience substrate), harness version pins + admin update, headless-browser policy, image-tag versioning, analytics polish (graphs/export formats over today's tables + raw event log). Keep the "copy `$DATA_DIR`" backup story as the v1 story.
 
 ## Ordering rationale (waterfall gates)
 
 1→2→3 stack the primitives before any user-facing path exists. 4 (login) gates everything exposed. 5 gives the 80% path bare; 6 makes it interactive; 7 adds agents; 8 adds seeing+diffing; 9 hardens state; 10 is the mobile polish pass on the now-complete loop; 11 ships; 12 is the deliberately last, highest-scope feature so it cannot block the core loop.
+
+Observability is threaded through all of it, not bolted on at 11: the log is born in 2, every phase 4–10 emits into it and exercises it in its gate, 11 merely paints the page over data that already exists, and 12 lets the secretary read the same log for debugging.
