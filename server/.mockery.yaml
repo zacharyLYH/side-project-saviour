@@ -17,6 +17,12 @@ packages:
   sps/internal/harness:
     interfaces:
       Loader:
+  sps/internal/httpapi:
+    interfaces:
+      EventLog:
+  sps/internal/auth:
+    interfaces:
+      Mailer:
   sps/internal/docker:
     interfaces:
       Client:

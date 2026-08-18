@@ -1,0 +1,11 @@
+{
+  "name": "OpenCode",
+  "command": "opencode",
+  "install": "npm i -g opencode-ai",
+  "auth": {
+    "env": [
+      "ANTHROPIC_API_KEY",
+      "OPENAI_API_KEY"
+    ]
+  }
+}

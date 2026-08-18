@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"sps/internal/auth"
 	"sps/internal/config"
 	"sps/internal/data"
 	"sps/internal/events"
@@ -53,13 +54,19 @@ func main() {
 		os.Exit(1)
 	}
 
+	authSvc, err := newAuthService(cfg)
+	if err != nil {
+		slog.Error("init auth", "err", err)
+		os.Exit(1)
+	}
+
 	ev.Append("boot", map[string]any{"version": version})
 	if len(seeded) > 0 {
 		ev.Append("harness.seed", map[string]any{"written": seeded})
 	}
 	logger.Info("data dir ready", "data_dir", cfg.DataDir, "seeded_harnesses", seeded)
 
-	srv := &http.Server{Addr: cfg.Bind, Handler: httpapi.New(ev, version)}
+	srv := &http.Server{Addr: cfg.Bind, Handler: httpapi.New(httpapi.Deps{Events: ev, Version: version, Auth: authSvc})}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -86,4 +93,28 @@ func main() {
 		}
 		logger.Info("shutdown complete")
 	}
+}
+
+// newAuthService builds the auth service: signing secret from SPS_JWT_SECRET
+// or a generated, persisted file under the data dir; PIN delivery by SMTP
+// when credentials are configured, console (server log) otherwise.
+func newAuthService(cfg *config.Config) (*auth.Service, error) {
+	secret := []byte(cfg.JWTSecret)
+	if len(secret) == 0 {
+		var err error
+		secret, err = auth.LoadOrCreateSecret(filepath.Join(cfg.DataDir, "jwt-secret"))
+		if err != nil {
+			return nil, err
+		}
+	}
+	var mailer auth.Mailer = auth.ConsoleMailer{Out: os.Stderr}
+	name := "console"
+	if cfg.SMTPUser != "" && cfg.SMTPPass != "" {
+		mailer = auth.SmtpMailer{Host: cfg.SMTPHost, Port: cfg.SMTPPort, User: cfg.SMTPUser, Password: cfg.SMTPPass, From: cfg.SMTPFrom}
+		name = "smtp"
+	}
+	svc := auth.New(cfg.LoginEmail, secret, mailer)
+	svc.MailerName = name
+	slog.Info("auth ready", "login_email", cfg.LoginEmail, "mailer", name)
+	return svc, nil
 }

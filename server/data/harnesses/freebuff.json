@@ -1,0 +1,11 @@
+{
+  "name": "Freebuff",
+  "command": "freebuff",
+  "install": "npm i -g freebuff",
+  "auth": {
+    "env": [
+      "ANTHROPIC_API_KEY",
+      "OPENAI_API_KEY"
+    ]
+  }
+}

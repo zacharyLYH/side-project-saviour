@@ -61,9 +61,53 @@ type Config struct {
 	DockerSock string
 }
 
-// Load reads configuration from the process environment.
+// Load reads configuration from the process environment, layering a `.env`
+// file from the working directory underneath so host runs work without
+// exporting anything. Real environment variables always win, so compose and
+// CI behavior is unchanged.
 func Load() (*Config, error) {
-	return load(os.Environ())
+	env := os.Environ()
+	if err := appendDotEnv(&env, ".env"); err != nil {
+		return nil, err
+	}
+	return load(env)
+}
+
+// appendDotEnv parses a dotenv-style file (KEY=VALUE lines, `#` comments,
+// optional surrounding quotes) and appends its keys to env, except for keys
+// the real environment already provides.
+func appendDotEnv(env *[]string, path string) error {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	present := map[string]bool{}
+	for _, kv := range *env {
+		if k, _, ok := strings.Cut(kv, "="); ok {
+			present[k] = true
+		}
+	}
+	var added []string
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		k, v, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		k = strings.TrimSpace(k)
+		v = strings.Trim(strings.TrimSpace(v), `"'`)
+		if k != "" && !present[k] {
+			added = append(added, k+"="+v)
+		}
+	}
+	*env = append(*env, added...)
+	return nil
 }
 
 func load(env []string) (*Config, error) {

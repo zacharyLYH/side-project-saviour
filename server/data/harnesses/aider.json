@@ -1,0 +1,11 @@
+{
+  "name": "Aider",
+  "command": "aider",
+  "install": "python3 -m pip install -U aider-chat",
+  "auth": {
+    "env": [
+      "ANTHROPIC_API_KEY",
+      "OPENAI_API_KEY"
+    ]
+  }
+}
