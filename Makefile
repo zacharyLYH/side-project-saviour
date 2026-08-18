@@ -5,7 +5,7 @@ VERSION ?= dev
 -include .env
 export SPS_LOGIN_EMAIL SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASSWORD SMTP_FROM
 
-.PHONY: dev test build check lint e2e web-install web-test clean
+.PHONY: dev test build check lint e2e generate web-install web-test clean
 
 dev: ## Run the server on the host (Go toolchain; web dev server runs separately)
 	go -C server run ./cmd/server
@@ -36,6 +36,9 @@ web-install: ## Install web dependencies
 
 web-test: ## Run web behavioral tests (Playwright against installed Chrome)
 	cd web && npm run test:e2e
+
+generate: ## Regenerate Go mocks (mockery) into server/mocks
+	cd server && go generate ./...
 
 clean:
 	rm -rf bin web/dist web/test-results web/playwright-report

@@ -22,6 +22,10 @@ jobs:
         run: go vet ./...
       - name: Test
         run: go test ./...
+      - name: Verify generated mocks are up to date
+        run: |
+          go generate ./...
+          test -z "$(git status --porcelain -- mocks)"
 
   frontend:
     name: Frontend (TS) — lint, build & behavioral tests

@@ -1,0 +1,19 @@
+# Regenerate with: cd server && go generate ./...  (or make generate)
+# Mocks are committed; CI verifies they are up to date.
+with-expecter: true
+# Silence v3 deprecation warnings; the new defaults are what we want.
+resolve-type-alias: false
+disable-version-string: true
+issue-845-fix: true
+dir: "mocks/{{.PackageName}}"
+outpkg: "mocks"
+packages:
+  sps/internal/events:
+    interfaces:
+      Reader:
+  sps/internal/project:
+    interfaces:
+      Store:
+  sps/internal/harness:
+    interfaces:
+      Loader:
