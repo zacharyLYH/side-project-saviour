@@ -81,7 +81,7 @@ Go server ───────► Docker Engine (unix socket)
 
 The only reason for system login is safe access to the self-hosted box over the internet.
 
-- Set once, in the server's start command: the email that receives login codes.
+- Set once, in `.env` (`SPS_LOGIN_EMAIL`): the email that receives login codes.
 - Log in: enter the email → a one-time PIN is emailed → enter the PIN → the browser gets a JWT.
 - Every request and WebSocket carries the JWT. A middleware checks it.
 - This is separate from harness auth (LLM credentials, see Harness auth).
@@ -113,7 +113,7 @@ The only reason for system login is safe access to the self-hosted box over the 
 
 ### First run
 
-1. Install and start the server. One command. In that command you set the email that receives login codes.
+1. Create a `.env` file with the email that receives login codes plus the SMTP credentials (see the README). Then install and start the server. One command.
 2. Log in: enter the email, receive a PIN by email, enter it. The browser gets a JWT.
 3. You land on the projects screen. Empty? "Clone a repo →".
 4. Default harnesses (terminal, opencode, freebuff, aider) are already in "+ New Session". Nothing to configure first.

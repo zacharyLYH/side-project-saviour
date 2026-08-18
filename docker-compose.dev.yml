@@ -1,0 +1,42 @@
+# Dev stack. Boots the Go server and the Vite dev server proxying /api and
+# /ws to it. Email (Phase 4) is sent with net/smtp against Google SMTP using
+# credentials from .env (SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASSWORD/
+# SMTP_FROM) — no SMTP server to run.
+#
+#   docker compose -f docker-compose.dev.yml up
+#   curl http://localhost:8080/health
+services:
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile.dev
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      SPS_DATA_DIR: /data
+      SPS_BIND: :8080
+      SPS_DOCKER_SOCK: unix:///var/run/docker.sock
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - sps-data:/data
+    ports:
+      - "8080:8080"
+
+  web:
+    image: node:24-alpine
+    working_dir: /app
+    environment:
+      SPS_SERVER_URL: http://server:8080
+    volumes:
+      - ./web:/app
+      - web-node-modules:/app/node_modules # container installs here, never in host ./web
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    ports:
+      - "5173:5173"
+    depends_on:
+      - server
+
+volumes:
+  sps-data:
+  web-node-modules:

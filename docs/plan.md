@@ -7,7 +7,7 @@
 - The server runs on the host in dev (`make dev`) against the host Docker engine. Project containers are real containers on that same engine — siblings, not nested. The prod "server image ships project images" path (mounted socket) is exercised by `make e2e`, which runs the *same* flow through compose.
 - Tests drive real Docker, real tmux, real git — wrapped in thin internal packages, never mocked at the boundary. Parsing/logic unit tests need no Docker.
 - `test/fixtures/` ships tiny Dockerfiles (alpine+node), a sample "hello" repo, and fake CLIs so harness flows don't need real network installs.
-- Email in dev prints the PIN to the server log (a `Mailer` interface; SMTP is a prod-only implementation). No SMTP needed on a laptop.
+- Email in dev prints the PIN to the server log (a `Mailer` interface; the SMTP implementation sends via Google SMTP with `net/smtp` using an app password from `.env`). No SMTP server to run anywhere — the credentials are just `SMTP_*` env vars.
 - Every phase adds a `make check` step next to `make dev` / `make test`.
 
 ## Observability is a day-1 concern
@@ -45,12 +45,12 @@ Placement: a top-level item on the home screen, outside any project — the syst
 **Goal.** A bo-repo that builds, boots, and answers health. Nothing more.
 
 **Scope.**
-- Repo layout: `cmd/server`, `internal/{config,auth,docker,project,session,terminal,preview,diff,harness}`, `web/`, `test/fixtures`.
+- Repo layout: `server/` (Go: `cmd/server`, `internal/{config,auth,docker,project,session,terminal,preview,diff,harness}`), `web/` (TS), `test/fixtures`.
 - Config via env/flags: `DATA_DIR`, `BIND`, `LOGIN_EMAIL`, `JWT_SECRET`, `SMTP_*`, `DOCKER_SOCK`.
 - `Go server` skeleton: logging, graceful shutdown, `GET /health` + `GET /api/ping`.
 - `internal/config` loads and validates; unknown config fails loudly.
 - `Makefile`: `make dev`, `make test`, `make build`, `make check`, `make e2e` (stub).
-- `docker-compose.dev.yml`: boots the server and a fake SMTP sink; Vite dev server proxying `/api` and `/ws`.
+- `docker-compose.dev.yml`: boots the server and the Vite dev server proxying `/api` and `/ws`; SMTP credentials come from `.env` (Google app password, `net/smtp` in Phase 4) — no SMTP sink.
 - `web/` Vite + React + TS scaffold rendering a placeholder page.
 
 **Gate (test locally).** `docker compose -f docker-compose.dev.yml up`; `curl /health` returns 200; `make test` runs the config unit tests; server exits clean on SIGTERM.
@@ -95,8 +95,9 @@ Placement: a top-level item on the home screen, outside any project — the syst
 **Goal.** The only reason login exists is safe internet exposure. Keep it minimal: email + one-time PIN → JWT.
 
 **Scope.**
-- `Mailer` interface with two impls: `ConsoleMailer` (dev: print PIN to log) and `SmtpMailer` (prod, configured via env).
-- Flow: request PIN for the configured `LOGIN_EMAIL` → rate-limit and expire PINs → verify → issue signed JWT (crypto/rand, expiry, `HttpOnly; SameSite=Strict` cookie).
+- `Mailer` interface with two impls: `ConsoleMailer` (dev: print PIN to log) and `SmtpMailer` (sends via Google SMTP with `net/smtp`, creds from `SMTP_*` env vars — an app password, no SMTP server).
+- `SPS_JWT_SECRET` is not a required env var: on first boot generate a random secret with `crypto/rand` and persist it to `$DATA_DIR` (0600); the env var overrides. A hardcoded default secret would be a security hole.
+- Flow: request PIN for the configured `SPS_LOGIN_EMAIL` (set in `.env`, not a startup prompt) → rate-limit and expire PINs → verify → issue signed JWT (crypto/rand, expiry, `HttpOnly; SameSite=Strict` cookie).
 - Middleware: every `/api/*` and `/ws/*` route requires a valid JWT (except login/PIN routes). WebSocket handshake validates the cookie too.
 - Logged-out and logged-in UI states in the scaffolded frontend.
 - Emit `login` events (success/failure, never the token) on every flow.

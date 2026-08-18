@@ -11,4 +11,7 @@
 
 # Typescript code
 1. TYPED. Everything must be typed. 
-2. TESTS. Playwright behavioral and visual tests should be first class from day 1. Mocks are allowed, but push it down as far as possible - we want to exercise as much behavior as possible!
+2. TESTS. Playwright behavioral tests should be first class from day 1 (visual/screenshot tests deferred for now). Mocks are allowed, but push it down as far as possible - we want to exercise as much behavior as possible!
+3. USE SHADCN COMPONENTS AND TAILWIND CSS. Prioritize using fleshed out and polished ShadCN components found here: https://ui.shadcn.com/docs/components
+4. TAILWIND CSS RESPONSIVE DESIGN IS MOBILE FIRST. Custom styles are for larger screens, non-custom are assumed to be for mobile screens.
+5. MOCK API BEHAVIOR. Do not spin up a real golang server. Just mock the API behavior your test expects! Keeps code decoupled and even allows us to test API failure / edge cases much easier!
