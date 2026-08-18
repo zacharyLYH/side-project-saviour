@@ -17,3 +17,6 @@ packages:
   sps/internal/harness:
     interfaces:
       Loader:
+  sps/internal/docker:
+    interfaces:
+      Client:

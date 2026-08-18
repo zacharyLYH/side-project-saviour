@@ -1,0 +1,195 @@
+//go:build integration
+
+// Integration tests for the Docker control plane. They drive a real engine;
+// run with: make docker-test. They fail fast with a clear message when
+// Docker is unavailable rather than failing silently or hanging.
+package docker
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+const (
+	itImage   = "sps-test:latest"
+	itName    = "sps-itest"
+	itNetwork = "sps-test-net"
+	itHomeVol = "sps-itest-home"
+)
+
+// fixtureDir walks up from the test's cwd to the repo's test/fixtures/docker
+// (the module root is server/, one level below the repo root).
+func fixtureDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for {
+		p := filepath.Join(dir, "test", "fixtures", "docker")
+		if _, err := os.Stat(filepath.Join(p, "Dockerfile")); err == nil {
+			return p
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("test/fixtures/docker not found above test cwd")
+		}
+		dir = parent
+	}
+}
+
+func newTestDocker(t *testing.T) *Docker {
+	t.Helper()
+	d, err := New(os.Getenv("SPS_DOCKER_SOCK"))
+	if err != nil {
+		t.Fatalf("new docker client: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := d.Ping(ctx); err != nil {
+		t.Fatalf("docker unavailable — is the engine running? (SPS_DOCKER_SOCK=%q): %v", os.Getenv("SPS_DOCKER_SOCK"), err)
+	}
+	return d
+}
+
+// TestDockerLifecycle is the Phase 3 gate: build a fixture image, run it,
+// exec a command, upload a file, inspect, detect ports, tail logs, resize an
+// interactive exec, and remove everything.
+func TestDockerLifecycle(t *testing.T) {
+	d := newTestDocker(t)
+	ctx := context.Background()
+
+	if err := d.EnsureNetwork(ctx, itNetwork); err != nil {
+		t.Fatalf("ensure network: %v", err)
+	}
+
+	// build the fixture image, streaming build output
+	var buildLog bytes.Buffer
+	if err := d.Build(ctx, BuildOptions{
+		Tag:        itImage,
+		ContextDir: fixtureDir(t),
+	}, &buildLog); err != nil {
+		t.Fatalf("build: %v\nbuild log:\n%s", err, buildLog.String())
+	}
+
+	// run: python http server in the background + a long-lived process, with
+	// the read-only rootfs default and a writable home volume at /root
+	id, err := d.Run(ctx, Spec{
+		Name: itName, Image: itImage, Network: itNetwork,
+		Cmd:     []string{"sh", "-c", "python3 -m http.server 8000 >/dev/null 2>&1 & echo started; sleep infinity"},
+		Volumes: []Mount{{Name: itHomeVol, Dest: "/root"}},
+	})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if id == "" {
+		t.Fatal("run returned empty container id")
+	}
+	t.Cleanup(func() {
+		ctx2, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_ = d.Remove(ctx2, id, true)
+		_ = d.c.RemoveVolume(itHomeVol)
+	})
+
+	// inspect: running
+	ins, err := d.Inspect(ctx, id)
+	if err != nil {
+		t.Fatalf("inspect: %v", err)
+	}
+	if !ins.Running {
+		t.Fatalf("container not running: %+v", ins)
+	}
+
+	// exec: echo round trip
+	res, err := d.Exec(ctx, id, []string{"echo", "hi"}, false)
+	if err != nil {
+		t.Fatalf("exec: %v", err)
+	}
+	if res.ExitCode != 0 || strings.TrimSpace(res.Output) != "hi" {
+		t.Fatalf("exec result: %+v", res)
+	}
+
+	// file upload (docker cp) + read back + verify via exec
+	if err := d.WriteFile(ctx, id, "/root/hello.txt", []byte("hello world\n")); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	got, err := d.ReadFile(ctx, id, "/root/hello.txt")
+	if err != nil {
+		t.Fatalf("read file: %v", err)
+	}
+	if string(got) != "hello world\n" {
+		t.Fatalf("read file got %q", got)
+	}
+	if res, _ := d.Exec(ctx, id, []string{"cat", "/root/hello.txt"}, false); res.Output != "hello world\n" {
+		t.Fatalf("cat file: %+v", res)
+	}
+
+	// logs tail
+	var logs bytes.Buffer
+	if err := d.Logs(ctx, id, "10", &logs); err != nil {
+		t.Fatalf("logs: %v", err)
+	}
+	if !strings.Contains(logs.String(), "started") {
+		t.Fatalf("logs missing 'started': %q", logs.String())
+	}
+
+	// port detection (ss -tlnp)
+	ports, err := d.Ports(ctx, id)
+	if err != nil {
+		t.Fatalf("ports: %v", err)
+	}
+	found := false
+	for _, p := range ports {
+		if p.Number == 8000 {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("port 8000 not detected: %+v", ports)
+	}
+
+	// interactive exec: attach + resize while running
+	execIDCh := make(chan string, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		execID, code, err := d.AttachExec(ctx, id, []string{"sh", "-c", "sleep 5"}, strings.NewReader(""), io.Discard, io.Discard, true)
+		execIDCh <- execID
+		if err != nil {
+			errCh <- err
+			return
+		}
+		if code != 0 {
+			errCh <- fmt.Errorf("exit code %d", code)
+			return
+		}
+		errCh <- nil
+	}()
+	execID := <-execIDCh
+	time.Sleep(500 * time.Millisecond)
+	if err := d.ResizeTTY(ctx, execID, 30, 120); err != nil {
+		t.Fatalf("resize: %v", err)
+	}
+	if err := <-errCh; err != nil {
+		t.Fatalf("attach: %v", err)
+	}
+
+	// stop + remove, then inspect must report ErrNotFound
+	if err := d.Stop(ctx, id, 5*time.Second); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	if err := d.Remove(ctx, id, true); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	if _, err := d.Inspect(ctx, id); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("inspect after remove: %v (want ErrNotFound)", err)
+	}
+}

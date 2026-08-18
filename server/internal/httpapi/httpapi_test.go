@@ -1,4 +1,4 @@
-package main
+package httpapi
 
 import (
 	"encoding/json"
@@ -30,7 +30,7 @@ func get(t *testing.T, h http.Handler, path string) *httptest.ResponseRecorder {
 }
 
 func TestHealth(t *testing.T) {
-	rec := get(t, newHandler(newTestLog(t)), "/health")
+	rec := get(t, New(newTestLog(t), "dev"), "/health")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
@@ -44,7 +44,7 @@ func TestHealth(t *testing.T) {
 }
 
 func TestPing(t *testing.T) {
-	rec := get(t, newHandler(newTestLog(t)), "/api/ping")
+	rec := get(t, New(newTestLog(t), "dev"), "/api/ping")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
@@ -59,7 +59,7 @@ func TestPing(t *testing.T) {
 
 func TestMethodNotAllowed(t *testing.T) {
 	rec := httptest.NewRecorder()
-	newHandler(newTestLog(t)).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/health", nil))
+	New(newTestLog(t), "dev").ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/health", nil))
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusMethodNotAllowed)
 	}
@@ -72,7 +72,7 @@ func TestEventsAPI(t *testing.T) {
 			t.Fatalf("append: %v", err)
 		}
 	}
-	h := newHandler(ev)
+	h := New(ev, "dev")
 
 	decode := func(rec *httptest.ResponseRecorder) []events.Event {
 		t.Helper()
@@ -109,7 +109,7 @@ func TestEventsAPIWithMockReader(t *testing.T) {
 		{ID: 4, Type: "test", Time: time.Now().UTC()},
 	}, nil)
 
-	rec := get(t, newHandler(m), "/api/events?after=3")
+	rec := get(t, New(m, "dev"), "/api/events?after=3")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}

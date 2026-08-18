@@ -1,19 +1,17 @@
 // Command server is the Side Project Saviour control plane: it serves the
 // HTTP + WebSocket API and talks to Docker, tmux, and git on the host.
-// Phase 2: bootstraps the data dir, seeds harness builtins, and exposes the
-// event log over /api/events.
+// This file only boots: config, data dir, event log, harness seeding. The
+// HTTP surface lives in internal/httpapi.
 package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strconv"
 	"syscall"
 	"time"
 
@@ -21,6 +19,7 @@ import (
 	"sps/internal/data"
 	"sps/internal/events"
 	"sps/internal/harness"
+	"sps/internal/httpapi"
 )
 
 // version is set at build time via -ldflags "-X main.version=...".
@@ -60,7 +59,7 @@ func main() {
 	}
 	logger.Info("data dir ready", "data_dir", cfg.DataDir, "seeded_harnesses", seeded)
 
-	srv := &http.Server{Addr: cfg.Bind, Handler: newHandler(ev)}
+	srv := &http.Server{Addr: cfg.Bind, Handler: httpapi.New(ev, version)}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -87,51 +86,4 @@ func main() {
 		}
 		logger.Info("shutdown complete")
 	}
-}
-
-func newHandler(ev events.Reader) http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "version": version})
-	})
-	mux.HandleFunc("GET /api/ping", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{"pong": "true", "version": version})
-	})
-	mux.HandleFunc("GET /api/events", func(w http.ResponseWriter, r *http.Request) {
-		after := int64(0)
-		if v := r.URL.Query().Get("after"); v != "" {
-			var err error
-			after, err = strconv.ParseInt(v, 10, 64)
-			if err != nil {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "after must be a number"})
-				return
-			}
-		}
-		limit := 100
-		if v := r.URL.Query().Get("limit"); v != "" {
-			n, err := strconv.Atoi(v)
-			if err != nil || n < 0 {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "limit must be a non-negative number"})
-				return
-			}
-			limit = n
-		}
-		if limit > 1000 {
-			limit = 1000
-		}
-		list, err := ev.Read(after, limit)
-		if err != nil {
-			slog.Error("read events", "err", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"events": list})
-	})
-	return mux
-}
-
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
 }

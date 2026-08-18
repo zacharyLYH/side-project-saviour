@@ -5,13 +5,16 @@ VERSION ?= dev
 -include .env
 export SPS_LOGIN_EMAIL SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASSWORD SMTP_FROM
 
-.PHONY: dev test build check lint e2e generate web-install web-test clean
+.PHONY: dev test docker-test build check lint e2e generate web-install web-test clean
 
 dev: ## Run the server on the host (Go toolchain; web dev server runs separately)
 	go -C server run ./cmd/server
 
 test: ## Run Go unit tests
 	go -C server test ./...
+
+docker-test: ## Docker integration tests (requires a running Docker engine)
+	go -C server test -tags integration -count=1 ./internal/docker/
 
 build: ## Build the server binary into bin/
 	mkdir -p bin
