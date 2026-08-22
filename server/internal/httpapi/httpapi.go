@@ -16,6 +16,7 @@ import (
 	"sps/internal/docker"
 	"sps/internal/events"
 	"sps/internal/project"
+	"sps/internal/session"
 )
 
 // EventLog is what handlers need from the event log: read history and append
@@ -32,6 +33,7 @@ type Deps struct {
 	Version  string
 	Auth     *auth.Service
 	Projects *project.Service
+	Sessions *session.Service
 }
 
 // New returns the HTTP handler for the whole server. Login/PIN routes are
@@ -41,9 +43,6 @@ func New(d Deps) http.Handler {
 
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "version": d.Version})
-	})
-	mux.HandleFunc("GET /api/ping", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{"pong": "true", "version": d.Version})
 	})
 
 	mux.HandleFunc("POST /api/auth/request-pin", handleRequestPIN(d))
@@ -60,6 +59,12 @@ func New(d Deps) http.Handler {
 		for _, op := range []string{"start", "stop", "restart"} {
 			mux.Handle("POST /api/projects/{id}/"+op, d.Auth.RequireAuth(http.HandlerFunc(handleProjectOp(d, op))))
 		}
+	}
+
+	if d.Sessions != nil {
+		mux.Handle("GET /api/projects/{id}/sessions", d.Auth.RequireAuth(http.HandlerFunc(handleListSessions(d))))
+		mux.Handle("POST /api/projects/{id}/sessions", d.Auth.RequireAuth(http.HandlerFunc(handleCreateSession(d))))
+		mux.Handle("GET /ws/projects/{id}/sessions/{name}", d.Auth.RequireAuth(http.HandlerFunc(handleTerminal(d))))
 	}
 	return mux
 }

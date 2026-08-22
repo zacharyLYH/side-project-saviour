@@ -40,7 +40,7 @@ type Client interface {
 	RemoveVolume(ctx context.Context, name string) error
 	Inspect(ctx context.Context, id string) (Container, error)
 	Exec(ctx context.Context, id string, cmd []string, tty bool) (ExecResult, error)
-	AttachExec(ctx context.Context, id string, cmd []string, stdin io.Reader, stdout, stderr io.Writer, tty bool) (string, int, error)
+	Attach(ctx context.Context, id string, cmd []string, stdin io.Reader, stdout, stderr io.Writer, tty bool) (string, <-chan ExecDone, error)
 	ResizeTTY(ctx context.Context, execID string, height, width int) error
 	Logs(ctx context.Context, id, tail string, out io.Writer) error
 	WriteFile(ctx context.Context, id, path string, content []byte) error

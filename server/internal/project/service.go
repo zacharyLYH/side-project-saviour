@@ -65,9 +65,11 @@ func NewService(store Store, dkr docker.Client, ev Events) *Service {
 	return &Service{store: store, dkr: dkr, ev: ev}
 }
 
-func containerName(id string) string { return "sps-" + id }
-func repoVolume(id string) string    { return "sps-" + id + "-repo" }
-func homeVolume(id string) string    { return "sps-" + id + "-home" }
+// ContainerName is the docker container backing project id.
+func ContainerName(id string) string { return "sps-" + id }
+
+func repoVolume(id string) string { return "sps-" + id + "-repo" }
+func homeVolume(id string) string { return "sps-" + id + "-home" }
 
 // Create runs a sandbox for the repo and clones it inside the container
 // (blank sandbox when repoURL is empty). Synchronous: returns when the
@@ -124,7 +126,7 @@ func (s *Service) runSandbox(ctx context.Context, id string) (string, error) {
 		return "", err
 	}
 	spec := docker.Spec{
-		Name:     containerName(id),
+		Name:     ContainerName(id),
 		Image:    SandboxImage,
 		Writable: true,
 		Volumes: []docker.Mount{
@@ -160,7 +162,7 @@ func (s *Service) Get(ctx context.Context, id string) (Project, weathervane.Stat
 	if err != nil {
 		return Project{}, weathervane.Status{}, s.wrapNotFound(err)
 	}
-	st, err := weathervane.Container(ctx, s.dkr, containerName(id))
+	st, err := weathervane.Container(ctx, s.dkr, ContainerName(id))
 	if err != nil {
 		return Project{}, weathervane.Status{}, err
 	}
@@ -177,7 +179,7 @@ func (s *Service) Start(ctx context.Context, id string) error {
 	if _, err := s.store.Get(id); err != nil {
 		return s.wrapNotFound(err)
 	}
-	if err := s.dkr.Start(ctx, containerName(id)); err != nil {
+	if err := s.dkr.Start(ctx, ContainerName(id)); err != nil {
 		return err
 	}
 	s.ev.Append("project.start", map[string]any{"id": id})
@@ -190,7 +192,7 @@ func (s *Service) Stop(ctx context.Context, id string) error {
 	if _, err := s.store.Get(id); err != nil {
 		return s.wrapNotFound(err)
 	}
-	if err := s.dkr.Stop(ctx, containerName(id), stopWait); err != nil && !errors.Is(err, docker.ErrNotFound) {
+	if err := s.dkr.Stop(ctx, ContainerName(id), stopWait); err != nil && !errors.Is(err, docker.ErrNotFound) {
 		return err
 	}
 	s.ev.Append("project.stop", map[string]any{"id": id})
@@ -225,10 +227,10 @@ func (s *Service) Delete(ctx context.Context, id string, scope Scope) error {
 	// (even stopped), so taking the repo also takes the container — its
 	// rootfs is disposable state; the home volume survives it.
 	if scope != ScopeMetadata {
-		_ = s.dkr.Stop(ctx, containerName(id), stopWait)
+		_ = s.dkr.Stop(ctx, ContainerName(id), stopWait)
 	}
 	if scope == ScopeContainer || scope == ScopeRepo || scope == ScopeAll {
-		fail(s.dkr.Remove(ctx, containerName(id), true))
+		fail(s.dkr.Remove(ctx, ContainerName(id), true))
 	}
 	if scope == ScopeContainer || scope == ScopeAll {
 		fail(s.dkr.RemoveVolume(ctx, homeVolume(id)))

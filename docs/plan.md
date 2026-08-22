@@ -138,16 +138,17 @@ Placement: a top-level item on the home screen, outside any project — the syst
 
 ## Phase 7 — Terminal transport
 
-**Goal.** The heart of the product: a browser terminal that behaves like a real terminal.
+**Goal.** The heart of the product: a browser terminal that behaves like a real terminal. Sessions exist and you can watch them from a browser; Phase 8 owns what runs inside them.
 
 **Scope.**
-- `GET /ws/projects/{id}/sessions/{name}` bridging browser frames ↔ `docker exec -it tmux attach -t <name>`.
+- Minimal sessions API (pulled up from Phase 8): `GET /api/projects/{id}/sessions` from `tmux list-sessions`; `POST .../sessions {name}` → `tmux new-session -d -s <name>` (plain shell, no harness logic). Creation is explicit; nothing auto-spawns sessions.
+- `GET /ws/projects/{id}/sessions/{name}` bridging browser frames ↔ `docker exec -it tmux attach -t <name>`. Strict attach only: 404 when project, container, or session does not exist.
 - Protocol: `input`, `resize` (→ `ResizeExecTTY`), `output`, `exit`. Reconnect = fresh `tmux attach`; session keeps running on disconnect.
 - Minimal frontend terminal: xterm.js + `@xterm/addon-fit` in a temporary tab, resize on frame, desktop-width toggle.
-- Connections emit `terminal.attach/detach` events so the log shows who was in which terminal when.
+- Connections emit `terminal.attach/detach` events so the log shows who was in which terminal when; explicit creates emit `session.create`.
 - Creature-comfort keys as a first cut: ↑, Ctrl-C, Ctrl-L, Tab, Esc → send keystroke frame (full strip lands in Phase 11).
 
-**Gate.** Open a project, open a terminal tab, run `echo hi` and a TUI (`top`), resize the window (browser and mobile), disconnect and reconnect → same scrollback. A Go test drives the WS client against a real session.
+**Gate.** Create a session via the API, open a terminal tab, run `echo hi` and a TUI (`top`), resize the window (browser and mobile), disconnect and reconnect → same scrollback. A Go test drives the WS client against a real session.
 
 ---
 
@@ -156,7 +157,7 @@ Placement: a top-level item on the home screen, outside any project — the syst
 **Goal.** "+ New Session" works: sessions are real tmux sessions, discovered not stored.
 
 **Scope.**
-- Sessions API: list (from `tmux list-sessions`), create `{harnessId}`, kill, restart. Naming: `<harness>-<n>`.
+- Sessions API: kill, restart; creation is harness-driven (`{harnessId}`), naming `<harness>-<n>`. Raw list + create-shell landed in Phase 7.
 - Harness launch: `tmux new-session -d 'cmd || echo "[cmd exited: $?]"'` in the repo dir; expose the exit line.
 - CLI validation from PRD §5: after `install`, run `command --version|--help` in the container with a forced TTY + timeout; reject non-CLI with the PRD message.
 - Install-on-demand: first launch runs the plugin's `install` in the container if the `command` is missing.

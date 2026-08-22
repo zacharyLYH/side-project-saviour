@@ -1,5 +1,0 @@
-{"id":1,"time":"2026-08-18T07:11:15.115145Z","type":"boot","data":{"version":"dev"}}
-{"id":2,"time":"2026-08-18T07:11:15.115195Z","type":"harness.seed","data":{"written":["Terminal","OpenCode","Freebuff","Aider"]}}
-{"id":3,"time":"2026-08-18T07:15:02.654934Z","type":"boot","data":{"version":"dev"}}
-{"id":4,"time":"2026-08-18T07:15:32.19463Z","type":"login.pin.sent","data":{"delivery":"smtp","email":"leeyihong03@gmail.com"}}
-{"id":5,"time":"2026-08-18T07:15:45.28614Z","type":"login.success","data":{"email":"leeyihong03@gmail.com"}}

@@ -104,21 +104,6 @@ func TestHealth(t *testing.T) {
 	}
 }
 
-func TestPing(t *testing.T) {
-	d, _ := newTestDeps(t)
-	rec := get(t, New(d), "/api/ping")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
-	}
-	var body map[string]string
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if body["pong"] != "true" {
-		t.Fatalf("pong field = %q, want %q", body["pong"], "true")
-	}
-}
-
 func TestMethodNotAllowed(t *testing.T) {
 	d, _ := newTestDeps(t)
 	rec := httptest.NewRecorder()
@@ -219,9 +204,6 @@ func TestUnauthorized(t *testing.T) {
 	}
 	if rec := get(t, h, "/health"); rec.Code != http.StatusOK {
 		t.Fatalf("/health: %d, want 200 (public)", rec.Code)
-	}
-	if rec := get(t, h, "/api/ping"); rec.Code != http.StatusOK {
-		t.Fatalf("/api/ping: %d, want 200 (public)", rec.Code)
 	}
 }
 

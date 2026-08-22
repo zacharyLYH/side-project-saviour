@@ -23,6 +23,7 @@ import (
 	"sps/internal/harness"
 	"sps/internal/httpapi"
 	"sps/internal/project"
+	"sps/internal/session"
 )
 
 // version is set at build time via -ldflags "-X main.version=...".
@@ -82,7 +83,7 @@ func main() {
 	logger.Info("data dir ready", "data_dir", cfg.DataDir, "seeded_harnesses", seeded)
 
 	srv := &http.Server{Addr: cfg.Bind, Handler: httpapi.New(httpapi.Deps{
-		Events: ev, Version: version, Auth: authSvc, Projects: svc,
+		Events: ev, Version: version, Auth: authSvc, Projects: svc, Sessions: session.New(dkr),
 	})}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

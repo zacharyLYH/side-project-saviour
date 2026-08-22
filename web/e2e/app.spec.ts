@@ -26,7 +26,6 @@ test('logs in with a PIN and shows the logged-in view', async ({ page }) => {
   await page.route('**/api/auth/verify', (route) =>
     mockJSON(route, 200, { email: 'me@example.com' }, { 'set-cookie': 'sps_session=testtoken; Path=/; HttpOnly; SameSite=Strict' }),
   )
-  await page.route('**/api/ping', (route) => mockJSON(route, 200, { pong: 'true', version: 'dev' }))
   await page.goto('/')
 
   await page.getByPlaceholder('you@example.com').fill('me@example.com')
@@ -37,17 +36,15 @@ test('logs in with a PIN and shows the logged-in view', async ({ page }) => {
   await page.getByRole('button', { name: 'Log in' }).click()
 
   await expect(page.getByText('Welcome, me@example.com')).toBeVisible()
-  await expect(page.getByText(/Server ping: \{"pong":"true"/)).toBeVisible()
 })
 
-test('shows the ping error when logged in and logs out', async ({ page }) => {
+test('logs out from the logged-in view', async ({ page }) => {
   await page.route('**/api/auth/me', (route) => mockJSON(route, 200, { email: 'me@example.com' }))
-  await page.route('**/api/ping', (route) => route.fulfill({ status: 500, body: 'boom' }))
   await page.route('**/api/auth/logout', (route) => mockJSON(route, 200, { ok: true }))
+  await page.route('**/api/projects', (route) => mockJSON(route, 200, { projects: [] }))
   await page.goto('/')
 
   await expect(page.getByText('Welcome, me@example.com')).toBeVisible()
-  await expect(page.getByText('Server ping: HTTP 500')).toBeVisible()
 
   await page.getByRole('button', { name: 'Log out' }).click()
   await expect(page.getByPlaceholder('you@example.com')).toBeVisible()

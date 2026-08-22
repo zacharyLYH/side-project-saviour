@@ -26,18 +26,18 @@ func (_m *MockClient) EXPECT() *MockClient_Expecter {
 	return &MockClient_Expecter{mock: &_m.Mock}
 }
 
-// AttachExec provides a mock function with given fields: ctx, id, cmd, stdin, stdout, stderr, tty
-func (_m *MockClient) AttachExec(ctx context.Context, id string, cmd []string, stdin io.Reader, stdout io.Writer, stderr io.Writer, tty bool) (string, int, error) {
+// Attach provides a mock function with given fields: ctx, id, cmd, stdin, stdout, stderr, tty
+func (_m *MockClient) Attach(ctx context.Context, id string, cmd []string, stdin io.Reader, stdout io.Writer, stderr io.Writer, tty bool) (string, <-chan docker.ExecDone, error) {
 	ret := _m.Called(ctx, id, cmd, stdin, stdout, stderr, tty)
 
 	if len(ret) == 0 {
-		panic("no return value specified for AttachExec")
+		panic("no return value specified for Attach")
 	}
 
 	var r0 string
-	var r1 int
+	var r1 <-chan docker.ExecDone
 	var r2 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, []string, io.Reader, io.Writer, io.Writer, bool) (string, int, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, string, []string, io.Reader, io.Writer, io.Writer, bool) (string, <-chan docker.ExecDone, error)); ok {
 		return rf(ctx, id, cmd, stdin, stdout, stderr, tty)
 	}
 	if rf, ok := ret.Get(0).(func(context.Context, string, []string, io.Reader, io.Writer, io.Writer, bool) string); ok {
@@ -46,10 +46,12 @@ func (_m *MockClient) AttachExec(ctx context.Context, id string, cmd []string, s
 		r0 = ret.Get(0).(string)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, []string, io.Reader, io.Writer, io.Writer, bool) int); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, string, []string, io.Reader, io.Writer, io.Writer, bool) <-chan docker.ExecDone); ok {
 		r1 = rf(ctx, id, cmd, stdin, stdout, stderr, tty)
 	} else {
-		r1 = ret.Get(1).(int)
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).(<-chan docker.ExecDone)
+		}
 	}
 
 	if rf, ok := ret.Get(2).(func(context.Context, string, []string, io.Reader, io.Writer, io.Writer, bool) error); ok {
@@ -61,12 +63,12 @@ func (_m *MockClient) AttachExec(ctx context.Context, id string, cmd []string, s
 	return r0, r1, r2
 }
 
-// MockClient_AttachExec_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AttachExec'
-type MockClient_AttachExec_Call struct {
+// MockClient_Attach_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Attach'
+type MockClient_Attach_Call struct {
 	*mock.Call
 }
 
-// AttachExec is a helper method to define mock.On call
+// Attach is a helper method to define mock.On call
 //   - ctx context.Context
 //   - id string
 //   - cmd []string
@@ -74,23 +76,23 @@ type MockClient_AttachExec_Call struct {
 //   - stdout io.Writer
 //   - stderr io.Writer
 //   - tty bool
-func (_e *MockClient_Expecter) AttachExec(ctx interface{}, id interface{}, cmd interface{}, stdin interface{}, stdout interface{}, stderr interface{}, tty interface{}) *MockClient_AttachExec_Call {
-	return &MockClient_AttachExec_Call{Call: _e.mock.On("AttachExec", ctx, id, cmd, stdin, stdout, stderr, tty)}
+func (_e *MockClient_Expecter) Attach(ctx interface{}, id interface{}, cmd interface{}, stdin interface{}, stdout interface{}, stderr interface{}, tty interface{}) *MockClient_Attach_Call {
+	return &MockClient_Attach_Call{Call: _e.mock.On("Attach", ctx, id, cmd, stdin, stdout, stderr, tty)}
 }
 
-func (_c *MockClient_AttachExec_Call) Run(run func(ctx context.Context, id string, cmd []string, stdin io.Reader, stdout io.Writer, stderr io.Writer, tty bool)) *MockClient_AttachExec_Call {
+func (_c *MockClient_Attach_Call) Run(run func(ctx context.Context, id string, cmd []string, stdin io.Reader, stdout io.Writer, stderr io.Writer, tty bool)) *MockClient_Attach_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string), args[2].([]string), args[3].(io.Reader), args[4].(io.Writer), args[5].(io.Writer), args[6].(bool))
 	})
 	return _c
 }
 
-func (_c *MockClient_AttachExec_Call) Return(_a0 string, _a1 int, _a2 error) *MockClient_AttachExec_Call {
+func (_c *MockClient_Attach_Call) Return(_a0 string, _a1 <-chan docker.ExecDone, _a2 error) *MockClient_Attach_Call {
 	_c.Call.Return(_a0, _a1, _a2)
 	return _c
 }
 
-func (_c *MockClient_AttachExec_Call) RunAndReturn(run func(context.Context, string, []string, io.Reader, io.Writer, io.Writer, bool) (string, int, error)) *MockClient_AttachExec_Call {
+func (_c *MockClient_Attach_Call) RunAndReturn(run func(context.Context, string, []string, io.Reader, io.Writer, io.Writer, bool) (string, <-chan docker.ExecDone, error)) *MockClient_Attach_Call {
 	_c.Call.Return(run)
 	return _c
 }

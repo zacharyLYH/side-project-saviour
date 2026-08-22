@@ -3,9 +3,9 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { TerminalView } from '@/components/Terminal'
+import { useProjects } from '@/hooks/useProjects'
 
-// Phase 4: the only UI is auth — logged out, logging in, logged in. The
-// logged-in view keeps the Phase 1 ping placeholder as the proxy proof.
 type AuthState = 'loading' | 'out' | 'in'
 
 export default function App() {
@@ -132,15 +132,44 @@ function LoginForm({ onLoggedIn }: { onLoggedIn: (email: string) => void }) {
 }
 
 function LoggedIn({ email, onLogout }: { email: string; onLogout: () => void }) {
-  const [ping, setPing] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const { projects, loading, error: projectsError, refresh } = useProjects()
+  const [terminal, setTerminal] = useState<string | null>(null)
+  const [repoUrl, setRepoUrl] = useState('')
+  const [branch, setBranch] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
 
-  useEffect(() => {
-    fetch('/api/ping')
-      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
-      .then((data: unknown) => setPing(JSON.stringify(data)))
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
-  }, [])
+  async function createProject(e: FormEvent) {
+    e.preventDefault()
+    setCreating(true)
+    setCreateError(null)
+    try {
+      const body = repoUrl.trim() ? { repoUrl: repoUrl.trim(), branch: branch.trim() } : {}
+      const res = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      setRepoUrl('')
+      setBranch('')
+      refresh()
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  async function deleteProject(id: string) {
+    if (!window.confirm('Delete this project — container and all volumes?')) return
+    try {
+      await fetch(`/api/projects/${id}?scope=all`, { method: 'DELETE' })
+      refresh()
+    } catch {
+      // leave the row in place; the next refresh shows the truth
+    }
+  }
 
   async function logout() {
     try {
@@ -149,6 +178,10 @@ function LoggedIn({ email, onLogout }: { email: string; onLogout: () => void }) 
       // still sign out client-side
     }
     onLogout()
+  }
+
+  if (terminal) {
+    return <TerminalView projectId={terminal} sessionName="main" onBack={() => { setTerminal(null); refresh() }} />
   }
 
   return (
@@ -162,8 +195,54 @@ function LoggedIn({ email, onLogout }: { email: string; onLogout: () => void }) 
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Welcome, {email}</CardTitle>
-          <CardDescription>Server ping: {ping ?? error ?? '…'}</CardDescription>
         </CardHeader>
+      </Card>
+      <Card className="mt-4">
+        <CardHeader>
+          <CardTitle className="text-base">Projects</CardTitle>
+          <CardDescription>One terminal per project, session "main".</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-2">
+          {loading && <p className="text-muted-foreground text-sm">Loading projects…</p>}
+          {!loading && projectsError && (
+            <p className="text-destructive text-sm">Failed to load projects: {projectsError}</p>
+          )}
+          {!loading && !projectsError && projects.length === 0 && (
+            <p className="text-muted-foreground text-sm">No projects yet.</p>
+          )}
+          {projects.map((p) => (
+            <div key={p.id} className="flex items-center justify-between text-sm">
+              <span>{p.name}</span>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={() => setTerminal(p.id)}>
+                  Terminal
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => deleteProject(p.id)}>
+                  Delete
+                </Button>
+              </div>
+            </div>
+          ))}
+
+          <form onSubmit={createProject} className="mt-2 flex flex-col gap-2 border-t pt-3">
+            <Input
+              type="text"
+              placeholder="Repo URL (optional — blank = plain sandbox)"
+              value={repoUrl}
+              onChange={(e) => setRepoUrl(e.target.value)}
+            />
+            <Input
+              type="text"
+              placeholder="Branch (optional)"
+              value={branch}
+              onChange={(e) => setBranch(e.target.value)}
+            />
+            {createError && <p className="text-destructive max-h-24 overflow-auto break-all text-xs">{createError}</p>}
+            <Button type="submit" disabled={creating}>
+              {creating ? 'Creating…' : 'Create project'}
+            </Button>
+          </form>
+        </CardContent>
       </Card>
     </main>
   )

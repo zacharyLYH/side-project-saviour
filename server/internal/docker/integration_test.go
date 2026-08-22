@@ -10,7 +10,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -173,28 +172,24 @@ func TestDockerLifecycle(t *testing.T) {
 	}
 
 	// interactive exec: attach + resize while running
-	execIDCh := make(chan string, 1)
-	errCh := make(chan error, 1)
-	go func() {
-		execID, code, err := d.AttachExec(ctx, id, []string{"sh", "-c", "sleep 5"}, strings.NewReader(""), io.Discard, io.Discard, true)
-		execIDCh <- execID
-		if err != nil {
-			errCh <- err
-			return
-		}
-		if code != 0 {
-			errCh <- fmt.Errorf("exit code %d", code)
-			return
-		}
-		errCh <- nil
-	}()
-	execID := <-execIDCh
+	execID, done, err := d.Attach(ctx, id, []string{"sh", "-c", "sleep 5"}, strings.NewReader(""), io.Discard, io.Discard, true)
+	if err != nil {
+		t.Fatalf("attach: %v", err)
+	}
 	time.Sleep(500 * time.Millisecond)
 	if err := d.ResizeTTY(ctx, execID, 30, 120); err != nil {
 		t.Fatalf("resize: %v", err)
 	}
-	if err := <-errCh; err != nil {
-		t.Fatalf("attach: %v", err)
+	select {
+	case out := <-done:
+		if out.Err != nil {
+			t.Fatalf("attach stream: %v", out.Err)
+		}
+		if out.ExitCode != 0 {
+			t.Fatalf("attach exit code = %d", out.ExitCode)
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatal("attach did not finish within 15s")
 	}
 
 	// stop + remove, then inspect must report ErrNotFound

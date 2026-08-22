@@ -29,6 +29,7 @@ import (
 	"sps/internal/docker"
 	"sps/internal/events"
 	"sps/internal/project"
+	"sps/internal/session"
 )
 
 var pinRe = regexp.MustCompile(`\d{6}`)
@@ -58,7 +59,7 @@ func newLiveDeps(t *testing.T) (http.Handler, *docker.Docker, *project.Service, 
 	var pinOut bytes.Buffer
 	authSvc := auth.New("me@example.com", []byte(testSecret), auth.ConsoleMailer{Out: &pinOut})
 	svc := project.NewService(project.Open(dataDir), dkr, ev)
-	h := New(Deps{Events: ev, Version: "itest", Auth: authSvc, Projects: svc})
+	h := New(Deps{Events: ev, Version: "itest", Auth: authSvc, Projects: svc, Sessions: session.New(dkr)})
 	return h, dkr, svc, &pinOut, ev, dataDir
 }
 
