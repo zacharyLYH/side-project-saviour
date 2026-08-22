@@ -3,7 +3,7 @@ Vibe coding is expensive and developers are busy people! What if you could vibe 
 
 ## Required environment variables
 
-Create a `.env` file (it's gitignored) and fill it in. The server loads it from its working directory when you run it on the host — so `server/.env` when you `go run` inside `server/`, or the repo root when you use `make dev`. In `docker compose`, pass them via `env_file` instead. Real environment variables always win over the file.
+Create a `.env` file (it's gitignored) and fill it in. The server loads it from its working directory when you run it on the host — so `server/.env` when you `go run` inside `server/`, or the repo root. In `docker compose`, pass them via `env_file` instead. Real environment variables always win over the file.
 
 | Variable | Description |
 |---|---|

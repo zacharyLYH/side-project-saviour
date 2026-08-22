@@ -14,8 +14,7 @@ import (
 // WriteFile writes content to path inside the container — the docker cp
 // primitive. Like docker cp, it PUTs to the file's directory with a tar of
 // the basename, so a read-only rootfs with a writable volume on the dir
-// (e.g. /root) still accepts the write. Phase 10 uses it to push .sps-env;
-// the secretary (Phase 13) uses it for config writes.
+// (e.g. /root) still accepts the write.
 func (d *Docker) WriteFile(ctx context.Context, id, path string, content []byte) error {
 	dir, name := filepath.Split(path)
 	if dir == "" {

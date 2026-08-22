@@ -71,7 +71,6 @@ func TestFileModesAndNoTempLeftovers(t *testing.T) {
 
 	for _, p := range []string{
 		filepath.Join(s.dataDir, "projects", "abc", "project.json"),
-		filepath.Join(s.dataDir, "projects.json"),
 	} {
 		info, err := os.Stat(p)
 		if err != nil {
@@ -92,4 +91,40 @@ func TestFileModesAndNoTempLeftovers(t *testing.T) {
 		}
 		return nil
 	})
+}
+
+// List's policy: a project dir without a project.json is skipped (half-created
+// state), stray non-dirs are ignored, but corrupt JSON fails the whole list —
+// broken things must be visible, never silently dropped.
+func TestListSkipsIncompleteAndRejectsCorrupt(t *testing.T) {
+	s := newStore(t)
+	if err := s.Create("ok", Project{Name: "fine"}); err != nil {
+		t.Fatal(err)
+	}
+	half := filepath.Join(s.dataDir, "projects", "half")
+	if err := os.MkdirAll(half, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(s.dataDir, "projects", "stray.txt"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := s.List()
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(entries) != 1 || entries[0].ID != "ok" || entries[0].Name != "fine" {
+		t.Fatalf("entries = %+v, want only the healthy project", entries)
+	}
+
+	bad := filepath.Join(s.dataDir, "projects", "bad")
+	if err := os.MkdirAll(bad, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bad, "project.json"), []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.List(); err == nil {
+		t.Fatal("corrupt project.json should fail the list loudly, not be dropped")
+	}
 }

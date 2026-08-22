@@ -29,7 +29,7 @@ Placement: a top-level item on the home screen, outside any project — the syst
 | 3 | Docker control plane | thin go-dockerclient wrapper (build/run/exec/resize/cp/logs/net) | integration test spins throwaway container |
 | 4 | System authentication | email + PIN → JWT, middleware on all routes/WS | login prints PIN to logs |
 | 5 | Live hosting & CI/CD | Netcup VPS + DuckDNS + HTTPS; live-check at every step; deploy-on-push | `curl https://.../health` from a laptop |
-| 6 | Project create pipeline | clone → Dockerfile check/scaffold → build → run → ready | fixture repo → "Ready" via curl |
+| 6 | Project create pipeline | sandbox container per project, clone inside, ready in seconds | fixture repo → "Ready" via curl |
 | 7 | Terminal transport | WS ↔ tmux via exec hijack + resize + reconnect | typed into a browser terminal |
 | 8 | Harnesses & sessions | session CRUD, CLI validation, builtins, launch/restart | fake CLI harness session |
 | 9 | Preview & diff | port detect + reverse proxy + ports panel; git diff API+UI | http.server in container → URL |
@@ -80,7 +80,7 @@ Placement: a top-level item on the home screen, outside any project — the syst
 **Goal.** A thin, boring wrapper over `go-dockerclient`. The server's whole interaction with Docker lives here.
 
 **Scope.**
-- Image build with streamed logs (create-project needs this).
+- Image build with streamed logs (the shared sandbox image needs this).
 - Container create/start/stop/remove/inspect with defaults: non-privileged, read-only rootfs where practical, resource limits, `sps-net` network, named volumes (`sps-<id>-repo`, `sps-<id>-home`).
 - Exec: `docker exec` with `-i -t`, attach hijack, and `ResizeExecTTY`.
 - Logs tail. File upload (the `docker cp` primitive) for env/harness config writes. Port detection (`ss -tlnp`). SSH-key mount into containers.
@@ -124,15 +124,15 @@ Placement: a top-level item on the home screen, outside any project — the syst
 
 ## Phase 6 — Project create pipeline
 
-**Goal.** PRD's 80% path works end-to-end over the API: clone → build → ready.
+**Goal.** PRD's 80% path works end-to-end over the API: create → ready in seconds. Each project gets a sandbox container from one shared image; the repo is cloned *inside* the container (the host never touches untrusted repo content, and nothing about the app needs to be dockerizable).
 
 **Scope.**
-- `POST /api/projects` `{repoUrl, branch?}` → clone to `$DATA_DIR/projects/<id>/repo` → Dockerfile check (missing ⇒ message; scaffold a minimal default on request) → `docker build` with logs streamed → `docker run` with volumes/limits/net → container ready.
-- `GET /api/projects`, `GET /api/projects/{id}` (state, live status), `POST /{id}/start|stop|restart`, `DELETE /{id}?scope=container|metadata|repo|all` with confirmation.
-- Create progress surfaced as event lines (`project.clone/build/run`); build failures land as `error` events; stop/start/delete emit `project.*` events.
-- Pin branch; default to remote default. Untracked scaffold: record that setup/start never auto-ran (Phase 8/11 adds actions).
+- Shared sandbox image (embedded `Dockerfile` in `internal/project/sandbox/`: git, tmux, `ss`, SSH, CA certs on a slim base), built once locally if absent.
+- `POST /api/projects` `{repoUrl?, branch?}` → run sandbox (named volumes `sps-<id>-repo` at `/workspace`, `sps-<id>-home` at `/root`, `sps-net`, writable rootfs) → `git clone` inside the container into `/workspace/repo` (blank sandbox when `repoUrl` empty) → ready. Synchronous: progress lands as event lines (`project.create/clone/ready`); clone failures land as `error` events and the sandbox stays up for manual repair.
+- `GET /api/projects` (index), `GET /api/projects/{id}` (metadata + live container status via weathervane), `POST /{id}/start|stop|restart`, `DELETE /{id}?scope=container|repo|metadata|all`.
+- Branch pinned when given; default to the remote's HEAD otherwise.
 
-**Gate.** API smoke tests (`httptest` against a live server + host Docker): create a fixture repo, reach "Running", stop it (volumes survive), restart it, delete each scope. No UI required — proves it with curl.
+**Gate.** API smoke tests (`httptest` against a live server + host Docker): create from a local fixture repo (git daemon), reach "Running" with the clone present, stop it (volumes survive), restart it, delete each scope. Blank-sandbox path covered too.
 
 ---
 

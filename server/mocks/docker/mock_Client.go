@@ -363,6 +363,53 @@ func (_c *MockClient_Inspect_Call) RunAndReturn(run func(context.Context, string
 	return _c
 }
 
+// InspectImage provides a mock function with given fields: ctx, name
+func (_m *MockClient) InspectImage(ctx context.Context, name string) error {
+	ret := _m.Called(ctx, name)
+
+	if len(ret) == 0 {
+		panic("no return value specified for InspectImage")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, name)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockClient_InspectImage_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'InspectImage'
+type MockClient_InspectImage_Call struct {
+	*mock.Call
+}
+
+// InspectImage is a helper method to define mock.On call
+//   - ctx context.Context
+//   - name string
+func (_e *MockClient_Expecter) InspectImage(ctx interface{}, name interface{}) *MockClient_InspectImage_Call {
+	return &MockClient_InspectImage_Call{Call: _e.mock.On("InspectImage", ctx, name)}
+}
+
+func (_c *MockClient_InspectImage_Call) Run(run func(ctx context.Context, name string)) *MockClient_InspectImage_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockClient_InspectImage_Call) Return(_a0 error) *MockClient_InspectImage_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockClient_InspectImage_Call) RunAndReturn(run func(context.Context, string) error) *MockClient_InspectImage_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Logs provides a mock function with given fields: ctx, id, tail, out
 func (_m *MockClient) Logs(ctx context.Context, id string, tail string, out io.Writer) error {
 	ret := _m.Called(ctx, id, tail, out)
@@ -621,6 +668,53 @@ func (_c *MockClient_Remove_Call) Return(_a0 error) *MockClient_Remove_Call {
 }
 
 func (_c *MockClient_Remove_Call) RunAndReturn(run func(context.Context, string, bool) error) *MockClient_Remove_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// RemoveVolume provides a mock function with given fields: ctx, name
+func (_m *MockClient) RemoveVolume(ctx context.Context, name string) error {
+	ret := _m.Called(ctx, name)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RemoveVolume")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, name)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockClient_RemoveVolume_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RemoveVolume'
+type MockClient_RemoveVolume_Call struct {
+	*mock.Call
+}
+
+// RemoveVolume is a helper method to define mock.On call
+//   - ctx context.Context
+//   - name string
+func (_e *MockClient_Expecter) RemoveVolume(ctx interface{}, name interface{}) *MockClient_RemoveVolume_Call {
+	return &MockClient_RemoveVolume_Call{Call: _e.mock.On("RemoveVolume", ctx, name)}
+}
+
+func (_c *MockClient_RemoveVolume_Call) Run(run func(ctx context.Context, name string)) *MockClient_RemoveVolume_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockClient_RemoveVolume_Call) Return(_a0 error) *MockClient_RemoveVolume_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockClient_RemoveVolume_Call) RunAndReturn(run func(context.Context, string) error) *MockClient_RemoveVolume_Call {
 	_c.Call.Return(run)
 	return _c
 }

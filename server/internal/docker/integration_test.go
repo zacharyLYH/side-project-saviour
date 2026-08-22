@@ -1,8 +1,9 @@
 //go:build integration
 
 // Integration tests for the Docker control plane. They drive a real engine;
-// run with: make docker-test. They fail fast with a clear message when
-// Docker is unavailable rather than failing silently or hanging.
+// run with: go test -tags=integration -count=1 ./internal/docker/. They fail
+// fast with a clear message when Docker is unavailable rather than failing
+// silently or hanging.
 package docker
 
 import (
@@ -60,9 +61,9 @@ func newTestDocker(t *testing.T) *Docker {
 	return d
 }
 
-// TestDockerLifecycle is the Phase 3 gate: build a fixture image, run it,
-// exec a command, upload a file, inspect, detect ports, tail logs, resize an
-// interactive exec, and remove everything.
+// TestDockerLifecycle exercises the full container lifecycle: build a fixture
+// image, run it, exec a command, upload a file, inspect, detect ports, tail
+// logs, resize an interactive exec, and remove everything.
 func TestDockerLifecycle(t *testing.T) {
 	d := newTestDocker(t)
 	ctx := context.Background()
@@ -118,6 +119,12 @@ func TestDockerLifecycle(t *testing.T) {
 		t.Fatalf("exec result: %+v", res)
 	}
 
+	// exec propagates nonzero exit codes (the harness failure story
+	// depends on this)
+	if res, err := d.Exec(ctx, id, []string{"sh", "-c", "exit 3"}, false); err != nil || res.ExitCode != 3 {
+		t.Fatalf("exit code propagation: %+v err=%v", res, err)
+	}
+
 	// file upload (docker cp) + read back + verify via exec
 	if err := d.WriteFile(ctx, id, "/root/hello.txt", []byte("hello world\n")); err != nil {
 		t.Fatalf("write file: %v", err)
@@ -142,19 +149,27 @@ func TestDockerLifecycle(t *testing.T) {
 		t.Fatalf("logs missing 'started': %q", logs.String())
 	}
 
-	// port detection (ss -tlnp)
-	ports, err := d.Ports(ctx, id)
-	if err != nil {
-		t.Fatalf("ports: %v", err)
-	}
+	// port detection (ss -tlnp): the http server binds asynchronously after
+	// container start, so poll until it appears instead of racing it
 	found := false
-	for _, p := range ports {
-		if p.Number == 8000 {
-			found = true
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		ports, err := d.Ports(ctx, id)
+		if err != nil {
+			t.Fatalf("ports: %v", err)
 		}
+		for _, p := range ports {
+			if p.Number == 8000 {
+				found = true
+			}
+		}
+		if found {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
 	}
 	if !found {
-		t.Fatalf("port 8000 not detected: %+v", ports)
+		t.Fatal("port 8000 not detected within 30s")
 	}
 
 	// interactive exec: attach + resize while running
@@ -186,8 +201,19 @@ func TestDockerLifecycle(t *testing.T) {
 	if err := d.Stop(ctx, id, 5*time.Second); err != nil {
 		t.Fatalf("stop: %v", err)
 	}
+	// stopping a stopped container is idempotent — the pipeline relies on
+	// this for restart and scoped deletes
+	if err := d.Stop(ctx, id, 5*time.Second); err != nil {
+		t.Fatalf("idempotent stop: %v", err)
+	}
 	if err := d.Remove(ctx, id, true); err != nil {
 		t.Fatalf("remove: %v", err)
+	}
+
+	// volume removal is idempotent too (scoped deletes)
+	_ = d.c.RemoveVolume(itHomeVol)
+	if err := d.RemoveVolume(ctx, itHomeVol); err != nil {
+		t.Fatalf("idempotent volume removal: %v", err)
 	}
 	if _, err := d.Inspect(ctx, id); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("inspect after remove: %v (want ErrNotFound)", err)

@@ -6,11 +6,8 @@ import (
 	dockerclient "github.com/fsouza/go-dockerclient"
 )
 
-// Safe container defaults (the plan's "boring" settings).
-const (
-	DefaultNetwork = "sps-net"
-	DefaultMemory  = 512 << 20 // 512 MiB
-)
+// Safe container defaults: one shared bridge network, 512 MiB memory cap.
+const DefaultNetwork = "sps-net"
 
 // Mount is a volume mounted into a container.
 type Mount struct {
@@ -19,7 +16,7 @@ type Mount struct {
 }
 
 // Spec describes a container to create or run. Zero values get safe
-// defaults: non-privileged, read-only rootfs, 512 MiB memory cap, sps-net
+// defaults: non-privileged, read-only rootfs, unlimited memory, sps-net
 // network.
 type Spec struct {
 	Name     string
@@ -28,7 +25,7 @@ type Spec struct {
 	Env      []string
 	WorkDir  string
 	Writable bool   // opt out of the read-only rootfs
-	Memory   int64  // 0 = DefaultMemory
+	Memory   int64  // 0 = unlimited
 	Network  string // "" = DefaultNetwork
 	Volumes  []Mount
 	Binds    []string // host path:container path[:ro] (e.g. an SSH key)
@@ -41,15 +38,15 @@ func containerOptions(ctx context.Context, spec Spec) dockerclient.CreateContain
 	if network == "" {
 		network = DefaultNetwork
 	}
-	mem := spec.Memory
-	if mem == 0 {
-		mem = DefaultMemory
-	}
 	host := &dockerclient.HostConfig{
 		NetworkMode:    network,
 		ReadonlyRootfs: !spec.Writable,
-		Memory:         mem,
+		Memory:         spec.Memory,
 		Binds:          spec.Binds,
+		// Sandboxes reach host services (e.g. a local git remote) through
+		// the conventional name; on Linux it maps to the bridge gateway,
+		// on Docker Desktop it is built in.
+		ExtraHosts: []string{"host.docker.internal:host-gateway"},
 	}
 	for _, m := range spec.Volumes {
 		host.Mounts = append(host.Mounts, dockerclient.HostMount{Type: "volume", Source: m.Name, Target: m.Dest})

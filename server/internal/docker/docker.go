@@ -26,17 +26,18 @@ var (
 const DefaultEndpoint = "unix:///var/run/docker.sock"
 
 // Client is everything the server needs from Docker. Defined as an interface
-// so higher layers (Phase 6+) can be tested with a mock instead of a real
-// engine.
+// so consumers can be tested with mocks instead of a real engine.
 type Client interface {
 	Ping(ctx context.Context) error
 	EnsureNetwork(ctx context.Context, name string) error
 	Build(ctx context.Context, opts BuildOptions, log io.Writer) error
+	InspectImage(ctx context.Context, name string) error
 	Create(ctx context.Context, spec Spec) (string, error)
 	Start(ctx context.Context, id string) error
 	Run(ctx context.Context, spec Spec) (string, error)
 	Stop(ctx context.Context, id string, timeout time.Duration) error
 	Remove(ctx context.Context, id string, force bool) error
+	RemoveVolume(ctx context.Context, name string) error
 	Inspect(ctx context.Context, id string) (Container, error)
 	Exec(ctx context.Context, id string, cmd []string, tty bool) (ExecResult, error)
 	AttachExec(ctx context.Context, id string, cmd []string, stdin io.Reader, stdout, stderr io.Writer, tty bool) (string, int, error)
@@ -129,11 +130,20 @@ func (d *Docker) Run(ctx context.Context, spec Spec) (string, error) {
 }
 
 // Stop stops a container, giving it timeout to exit before SIGKILL.
+// Stopping an already-stopped container is not an error (idempotent stop).
 func (d *Docker) Stop(ctx context.Context, id string, timeout time.Duration) error {
-	if err := d.c.StopContainerWithContext(id, uint(timeout.Seconds()), ctx); err != nil {
+	err := d.c.StopContainerWithContext(id, uint(timeout.Seconds()), ctx)
+	if err != nil && !isAlreadyStopped(err) {
 		return fmt.Errorf("stop container %s: %w", id, err)
 	}
 	return nil
+}
+
+// isAlreadyStopped reports the engine's "not running" responses, which
+// describe an already-satisfied stop.
+func isAlreadyStopped(err error) bool {
+	var nr *dockerclient.ContainerNotRunning
+	return errors.As(err, &nr)
 }
 
 // Remove removes a container and its volumes. Removing an already-removed
@@ -158,6 +168,33 @@ func (d *Docker) Inspect(ctx context.Context, id string) (Container, error) {
 		Status:  c.State.Status,
 		Image:   c.Config.Image,
 	}, nil
+}
+
+// InspectImage reports whether an image exists locally. ErrNotFound when
+// it does not; other errors are engine failures.
+func (d *Docker) InspectImage(ctx context.Context, name string) error {
+	_, err := d.c.InspectImage(name)
+	if err != nil {
+		if errors.Is(err, dockerclient.ErrNoSuchImage) {
+			return fmt.Errorf("%w: image %s", ErrNotFound, name)
+		}
+		return fmt.Errorf("inspect image %s: %w", name, err)
+	}
+	return nil
+}
+
+// RemoveVolume removes a named volume. Removing an already-removed volume
+// is not an error (idempotent delete).
+func (d *Docker) RemoveVolume(ctx context.Context, name string) error {
+	err := d.c.RemoveVolumeWithOptions(dockerclient.RemoveVolumeOptions{Name: name, Context: ctx})
+	if err != nil && !isNotFoundVolume(err) {
+		return fmt.Errorf("remove volume %s: %w", name, err)
+	}
+	return nil
+}
+
+func isNotFoundVolume(err error) bool {
+	return errors.Is(err, dockerclient.ErrNoSuchVolume)
 }
 
 func isNotFound(err error) bool {

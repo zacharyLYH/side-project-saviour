@@ -1,7 +1,7 @@
 // Package project stores one JSON file per project under
-// $DATA_DIR/projects/<id>/project.json, plus a projects.json index so the
-// list renders without scanning containers. Writes are atomic (temp +
-// rename) with owner-only permissions.
+// $DATA_DIR/projects/<id>/project.json. The directory listing is the index;
+// there is no separate summary file to keep in sync. Writes are atomic
+// (temp + rename) with owner-only permissions.
 package project
 
 import (
@@ -10,10 +10,9 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"sync"
 )
 
-// Project holds only what cannot be defaulted (PRD §8).
+// Project holds only what cannot be defaulted.
 type Project struct {
 	Name    string            `json:"name"`
 	Repo    string            `json:"repo"`
@@ -34,10 +33,6 @@ type Entry struct {
 	Name string `json:"name"`
 }
 
-type index struct {
-	Projects []Entry `json:"projects"`
-}
-
 // Store is what consumers need: CRUD over projects plus the index. Defined
 // as an interface so callers can be tested with a mock instead of real disk.
 type Store interface {
@@ -49,11 +44,11 @@ type Store interface {
 }
 
 // FileStore reads and writes projects under a data dir: one JSON file per
-// project, plus the projects.json index. Writes are atomic (temp + rename)
-// with owner-only permissions.
+// project. The projects directory listing is the index; there is no separate
+// summary state to keep consistent. Writes are atomic (temp + rename) with
+// owner-only permissions.
 type FileStore struct {
 	dataDir string
-	mu      sync.Mutex // serializes index read-modify-write
 }
 
 // Open returns a FileStore rooted at $DATA_DIR. The projects directory must
@@ -62,10 +57,8 @@ func Open(dataDir string) *FileStore {
 	return &FileStore{dataDir: dataDir}
 }
 
-// Create writes a new project and adds it to the index.
+// Create writes a new project file.
 func (s *FileStore) Create(id string, p Project) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	dir := filepath.Join(s.dataDir, "projects", id)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create project dir: %w", err)
@@ -73,7 +66,7 @@ func (s *FileStore) Create(id string, p Project) error {
 	if err := writeJSON(filepath.Join(dir, "project.json"), p); err != nil {
 		return fmt.Errorf("write project: %w", err)
 	}
-	return s.indexAdd(id, p.Name)
+	return nil
 }
 
 // Get reads one project.
@@ -85,87 +78,50 @@ func (s *FileStore) Get(id string) (Project, error) {
 	return p, nil
 }
 
-// Update replaces a project's file, keeping the index's name in sync.
+// Update replaces a project's file.
 func (s *FileStore) Update(id string, p Project) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if err := writeJSON(filepath.Join(s.dataDir, "projects", id, "project.json"), p); err != nil {
 		return fmt.Errorf("write project: %w", err)
 	}
-	return s.indexSetName(id, p.Name)
+	return nil
 }
 
-// Delete removes a project's directory and index entry.
+// Delete removes a project's directory.
 func (s *FileStore) Delete(id string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if err := os.RemoveAll(filepath.Join(s.dataDir, "projects", id)); err != nil {
 		return fmt.Errorf("remove project: %w", err)
 	}
-	return s.indexRemove(id)
+	return nil
 }
 
-// List returns the projects index (id + name), sorted by name.
+// List scans the projects directory and returns every project as an entry,
+// sorted by name. Each project.json is the single source of truth — no
+// separate index to fall out of sync. A project dir without a readable
+// project.json is skipped (never half-created); anything else fails loudly.
 func (s *FileStore) List() ([]Entry, error) {
-	idx, err := s.readIndex()
+	entries, err := os.ReadDir(filepath.Join(s.dataDir, "projects"))
 	if err != nil {
-		return nil, err
+		if os.IsNotExist(err) {
+			return []Entry{}, nil
+		}
+		return nil, fmt.Errorf("list projects: %w", err)
 	}
-	out := append([]Entry(nil), idx.Projects...)
+	var out []Entry
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		var p Project
+		if err := readJSON(filepath.Join(s.dataDir, "projects", e.Name(), "project.json"), &p); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, fmt.Errorf("read project %s: %w", e.Name(), err)
+		}
+		out = append(out, Entry{ID: e.Name(), Name: p.Name})
+	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
-}
-
-func (s *FileStore) readIndex() (index, error) {
-	var idx index
-	if err := readJSON(filepath.Join(s.dataDir, "projects.json"), &idx); err != nil {
-		if os.IsNotExist(err) {
-			return index{Projects: []Entry{}}, nil
-		}
-		return index{}, err
-	}
-	return idx, nil
-}
-
-func (s *FileStore) indexAdd(id, name string) error {
-	idx, err := s.readIndex()
-	if err != nil {
-		return err
-	}
-	idx.Projects = append(idx.Projects, Entry{ID: id, Name: name})
-	return s.writeIndex(idx)
-}
-
-func (s *FileStore) indexSetName(id, name string) error {
-	idx, err := s.readIndex()
-	if err != nil {
-		return err
-	}
-	for i := range idx.Projects {
-		if idx.Projects[i].ID == id {
-			idx.Projects[i].Name = name
-		}
-	}
-	return s.writeIndex(idx)
-}
-
-func (s *FileStore) indexRemove(id string) error {
-	idx, err := s.readIndex()
-	if err != nil {
-		return err
-	}
-	out := idx.Projects[:0]
-	for _, e := range idx.Projects {
-		if e.ID != id {
-			out = append(out, e)
-		}
-	}
-	idx.Projects = out
-	return s.writeIndex(idx)
-}
-
-func (s *FileStore) writeIndex(idx index) error {
-	return writeJSON(filepath.Join(s.dataDir, "projects.json"), idx)
 }
 
 // writeJSON writes v to path atomically (temp + rename) with owner-only perms.

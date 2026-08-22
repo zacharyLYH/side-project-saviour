@@ -18,8 +18,8 @@ func TestContainerOptionsDefaults(t *testing.T) {
 	if !h.ReadonlyRootfs {
 		t.Fatal("default spec should have a read-only rootfs")
 	}
-	if h.Memory != 512<<20 {
-		t.Fatalf("memory = %d, want 512MiB", h.Memory)
+	if h.Memory != 0 {
+		t.Fatalf("memory = %d, want 0 (unlimited)", h.Memory)
 	}
 	if h.Privileged {
 		t.Fatal("default spec must not be privileged")

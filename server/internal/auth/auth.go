@@ -1,7 +1,7 @@
 // Package auth implements the system's only login: a one-time PIN emailed to
 // the configured SPS_LOGIN_EMAIL, exchanged for a signed JWT stored in an
 // HttpOnly cookie. Deliberately not a SaaS identity system — one email, one
-// person (PRD §6).
+// person.
 package auth
 
 import (
@@ -221,7 +221,8 @@ func (s *Service) Email(r *http.Request) string {
 }
 
 // SetCookie writes the session cookie for token. Secure is set when the
-// request arrived over TLS (including behind the Phase 5 reverse proxy).
+// request arrived over TLS, directly or behind a reverse proxy that reports
+// https via X-Forwarded-Proto.
 func (s *Service) SetCookie(w http.ResponseWriter, r *http.Request, token string) {
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 	http.SetCookie(w, &http.Cookie{

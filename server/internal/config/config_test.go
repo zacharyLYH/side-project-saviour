@@ -110,6 +110,64 @@ func TestAppendDotEnvMissingFile(t *testing.T) {
 	}
 }
 
+// skipIfRealEnvConflicts guards Load()-level tests: a developer machine or CI
+// runner with SPS_*/SMTP_* variables set would shadow every .env value.
+func skipIfRealEnvConflicts(t *testing.T) {
+	t.Helper()
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "SPS_") || strings.HasPrefix(kv, "SMTP_") {
+			t.Skipf("real environment shadows .env: %s", kv)
+		}
+	}
+}
+
+func TestLoadFallsBackToParentDotEnv(t *testing.T) {
+	skipIfRealEnvConflicts(t)
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, ".env"),
+		[]byte("SPS_LOGIN_EMAIL=root@example.com\nSPS_DATA_DIR=/from/root\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(root, "server")
+	if err := os.MkdirAll(sub, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(sub)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.LoginEmail != "root@example.com" || cfg.DataDir != "/from/root" {
+		t.Fatalf("../.env ignored: %+v", cfg)
+	}
+}
+
+func TestLoadPrefersLocalDotEnvOverParent(t *testing.T) {
+	skipIfRealEnvConflicts(t)
+	root := t.TempDir()
+	for _, f := range []struct{ path, body string }{
+		{filepath.Join(root, ".env"), "SPS_LOGIN_EMAIL=parent@example.com"},
+		{filepath.Join(root, "server", ".env"), "SPS_LOGIN_EMAIL=local@example.com"},
+	} {
+		if err := os.MkdirAll(filepath.Dir(f.path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(f.path, []byte(f.body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Chdir(filepath.Join(root, "server"))
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.LoginEmail != "local@example.com" {
+		t.Fatalf("login email = %q, want the local .env to win", cfg.LoginEmail)
+	}
+}
+
 func TestValidateRejectsBadValues(t *testing.T) {
 	email := "SPS_LOGIN_EMAIL=me@example.com"
 	cases := []struct {

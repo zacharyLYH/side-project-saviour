@@ -30,8 +30,8 @@ Each Codespaces concept maps 1:1 here.
 
 | GitHub Codespaces | Side Project Saviour |
 |---|---|
-| Create a codespace (repo + branch) | Create a project (repo + branch) |
-| devcontainer.json builds the environment | the repo's `Dockerfile` builds the environment |
+| Create a codespace (repo + branch) | Create a project (repo + branch, or blank) |
+| devcontainer.json builds the environment | a shared sandbox image; users install what they need inside |
 | Open in browser | terminal-driven web UI, mobile-first |
 | Terminal | tmux-backed persistent terminal |
 | Ports panel + forwarded URLs | Preview tab: ports list + reverse proxy |
@@ -45,7 +45,7 @@ Rule: adopt these expectations verbatim. If a concept is not in the map, it does
 
 | Codespaces workflow | Behavior here |
 |---|---|
-| Create → building indicator → ready | clone → build image → "Building…" → "Ready" |
+| Create → building indicator → ready | create project → sandbox container runs → clone lands in `/workspace/repo` → "Ready" |
 | Any listening port becomes a forwarded URL | detect ports in the container; each becomes a Preview link |
 | Secrets set once, injected everywhere | env editor, masked, written to a `0600` file, sourced by login shells |
 | Closed laptop ≠ lost work | browser disconnect kills the view; tmux keeps the work |
@@ -64,7 +64,7 @@ Browser (phone/desktop, terminal-driven)
    ▼
 Go server ───────► Docker Engine (unix socket)
    │
-   ├── container: project-A   (repo image, tmux, harnesses, services)
+   ├── container: project-A   (sandbox: repo clone, tmux, harnesses, services)
    ├── container: project-B   (isolated)
    └── container: project-C   (isolated)
 ```
@@ -99,7 +99,7 @@ The only reason for system login is safe access to the self-hosted box over the 
 | Concept | Meaning |
 |---|---|
 | Project | a git repo, cloned into an isolated environment |
-| Environment | a container built from the repo's `Dockerfile`; holds code, deps, tools, env, processes |
+| Environment | a sandbox container from the shared sandbox image; holds code, deps, tools, env, processes |
 | Session | a persistent tmux window; a shell, or a harness, or a command |
 | Harness | a CLI plugin, launched in a session |
 | Action | a button: `{ label, command }`, run in a session |
@@ -117,7 +117,7 @@ The only reason for system login is safe access to the self-hosted box over the 
 2. Log in: enter the email, receive a PIN by email, enter it. The browser gets a JWT.
 3. You land on the projects screen. Empty? "Clone a repo →".
 4. Default harnesses (terminal, opencode, freebuff, aider) are already in "+ New Session". Nothing to configure first.
-5. Clone a repo → build → "Ready". Open it.
+5. Clone a repo (or start blank) → "Ready" in seconds. Open it.
 6. The first time you launch a harness that needs credentials, auth happens right then (see Harness auth). Later launches are one tap.
 
 No gate. The user is useful before configuring anything.
@@ -204,7 +204,8 @@ A harness without credentials cannot talk to any LLM. Auth is how this product w
 
 ## 8. Environments and configuration
 
-- The environment is the repo's `Dockerfile`. Missing? Scaffold a minimal default one and build. No detection, no compose, no devcontainer translation.
+- The environment is a **sandbox**: one shared image with the boring essentials (git, tmux, `ss`, SSH, CA certs). No per-repo Dockerfile, no build step — a project is ready in seconds, and nothing about the user's app needs to be dockerizable.
+- Users install whatever they want inside their sandbox (`apt-get`, `npm i -g`, ...). Installs are isolated per container. Installs into `$HOME` survive container recreation (home volume); system-wide installs survive stop/start but not recreation — that tradeoff is surfaced in the UI, not hidden.
 - Config never goes into the repo. We do not write into the user's source tree.
 - Harnesses are not in the project file. They live globally in `$DATA_DIR/harnesses/`.
 - The per-project file (`$DATA_DIR/projects/<id>/project.json`, `0600`) holds only what cannot be defaulted:
@@ -354,7 +355,7 @@ Cut to "later, when a user actually hits the wall":
 - [ ] System auth: email + one-time PIN → JWT, middleware on all requests
 - [ ] First-run: log in with email+PIN → land on projects → clone → ready; harness auth is on-demand
 - [ ] Persistence: docker volumes for system config + per-project state; restart keeps state
-- [ ] Create project from repo → clone → build → "Ready"
+- [ ] Create project from repo → clone in sandbox → "Ready" (blank sandboxes allowed too)
 - [ ] Terminal tab: xterm.js ↔ tmux via ws, resize, reconnect
 - [ ] Creature-comfort buttons: ↑ repeat-last-command, Ctrl-C, Ctrl-L, Tab, Esc
 - [ ] Global harness plugins: builtins seeded as files + "Add harness" form, one code path

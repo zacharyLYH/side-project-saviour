@@ -1,7 +1,7 @@
 // Command server is the Side Project Saviour control plane: it serves the
-// HTTP + WebSocket API and talks to Docker, tmux, and git on the host.
-// This file only boots: config, data dir, event log, harness seeding. The
-// HTTP surface lives in internal/httpapi.
+// HTTP API and talks to Docker on the host. (tmux/git session management is
+// not built yet.) This file only boots: config, data dir, event log,
+// harness seeding. The HTTP surface lives in internal/httpapi.
 package main
 
 import (
@@ -18,9 +18,11 @@ import (
 	"sps/internal/auth"
 	"sps/internal/config"
 	"sps/internal/data"
+	"sps/internal/docker"
 	"sps/internal/events"
 	"sps/internal/harness"
 	"sps/internal/httpapi"
+	"sps/internal/project"
 )
 
 // version is set at build time via -ldflags "-X main.version=...".
@@ -60,13 +62,28 @@ func main() {
 		os.Exit(1)
 	}
 
+	dkr, err := docker.New(cfg.DockerSock)
+	if err != nil {
+		slog.Error("init docker client", "err", err)
+		os.Exit(1)
+	}
+	// Docker being down must not take auth or the event log with it: warn
+	// now, fail per-operation when a project pipeline actually needs it.
+	if err := dkr.Ping(context.Background()); err != nil {
+		slog.Warn("docker engine unreachable", "err", err)
+	}
+
+	svc := project.NewService(project.Open(cfg.DataDir), dkr, ev)
+
 	ev.Append("boot", map[string]any{"version": version})
 	if len(seeded) > 0 {
 		ev.Append("harness.seed", map[string]any{"written": seeded})
 	}
 	logger.Info("data dir ready", "data_dir", cfg.DataDir, "seeded_harnesses", seeded)
 
-	srv := &http.Server{Addr: cfg.Bind, Handler: httpapi.New(httpapi.Deps{Events: ev, Version: version, Auth: authSvc})}
+	srv := &http.Server{Addr: cfg.Bind, Handler: httpapi.New(httpapi.Deps{
+		Events: ev, Version: version, Auth: authSvc, Projects: svc,
+	})}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

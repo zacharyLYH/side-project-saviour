@@ -20,7 +20,7 @@ type Harness struct {
 	Auth    Auth   `json:"auth,omitempty"`
 }
 
-// Auth describes how a harness gets its credentials (PRD §7).
+// Auth describes how a harness gets its credentials.
 type Auth struct {
 	Env        []string `json:"env,omitempty"`        // env vars that carry API keys
 	DeviceFlow bool     `json:"deviceFlow,omitempty"` // CLI prints a URL + code to log in
@@ -81,7 +81,7 @@ func loadFile(path string) (Harness, error) {
 	return h, nil
 }
 
-// Builtins seeded into a fresh harnesses dir (PRD §5). Real, editable files;
+// Builtins seeded into a fresh harnesses dir. Real, editable files;
 // install/auth are best-effort defaults the user can change.
 var builtins = []Harness{
 	{Name: "Terminal", Command: "bash"},
@@ -106,11 +106,7 @@ func SeedBuiltins(dir string) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		tmp := path + ".tmp"
-		if err := os.WriteFile(tmp, append(raw, '\n'), 0o600); err != nil {
-			return nil, fmt.Errorf("seed %s: %w", b.Name, err)
-		}
-		if err := os.Rename(tmp, path); err != nil {
+		if err := os.WriteFile(path, append(raw, '\n'), 0o600); err != nil {
 			return nil, fmt.Errorf("seed %s: %w", b.Name, err)
 		}
 		written = append(written, b.Name)

@@ -1,6 +1,7 @@
 package events
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -68,5 +69,58 @@ func TestOpenContinuesIDs(t *testing.T) {
 	}
 	if ev.ID != 2 {
 		t.Fatalf("id = %d, want 2 (monotonic across restarts)", ev.ID)
+	}
+}
+
+// A torn write (partial line, no trailing newline) or any other corrupt line
+// must never fail a read — the good lines before it still come back, and the
+// id counter continues past the damage.
+func TestReadToleratesTornAndCorruptLines(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.log")
+
+	l, err := Open(path)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	for _, typ := range []string{"a", "b"} {
+		if _, err := l.Append(typ, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// a whole garbage line plus a torn write cut off mid-JSON
+	if _, err := f.WriteString("\nnot json at all\n" + `{"id":3,"typ`); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	l2, err := Open(path)
+	if err != nil {
+		t.Fatalf("reopen over corrupt tail: %v", err)
+	}
+	defer l2.Close()
+	evs, err := l2.Read(0, 0)
+	if err != nil {
+		t.Fatalf("read should skip corrupt lines: %v", err)
+	}
+	if len(evs) != 2 || evs[0].Type != "a" || evs[1].Type != "b" {
+		t.Fatalf("events = %+v, want the two good ones", evs)
+	}
+
+	next, err := l2.Append("c", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.ID != 3 {
+		t.Fatalf("id after corrupt tail = %d, want 3", next.ID)
 	}
 }

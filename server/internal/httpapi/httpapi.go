@@ -1,18 +1,21 @@
 // Package httpapi wires the server's HTTP surface. Handlers live here, not
 // in cmd/server, so main stays a thin bootstrap and the growing route set
-// (projects in Phase 6, ...) doesn't bloat it.
+// doesn't bloat it.
 package httpapi
 
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"sps/internal/auth"
+	"sps/internal/docker"
 	"sps/internal/events"
+	"sps/internal/project"
 )
 
 // EventLog is what handlers need from the event log: read history and append
@@ -22,12 +25,13 @@ type EventLog interface {
 	Append(typ string, data map[string]any) (events.Event, error)
 }
 
-// Deps carries everything New needs. Grows with each phase (docker in
-// Phase 6, project store, ...) instead of stretching New's signature.
+// Deps carries everything New needs. Grows over time instead of
+// stretching New's signature.
 type Deps struct {
-	Events  EventLog
-	Version string
-	Auth    *auth.Service
+	Events   EventLog
+	Version  string
+	Auth     *auth.Service
+	Projects *project.Service
 }
 
 // New returns the HTTP handler for the whole server. Login/PIN routes are
@@ -47,6 +51,16 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/auth/logout", handleLogout(d))
 	mux.Handle("GET /api/auth/me", d.Auth.RequireAuth(http.HandlerFunc(handleMe(d))))
 	mux.Handle("GET /api/events", d.Auth.RequireAuth(http.HandlerFunc(handleEvents(d.Events))))
+
+	if d.Projects != nil {
+		mux.Handle("GET /api/projects", d.Auth.RequireAuth(http.HandlerFunc(handleListProjects(d))))
+		mux.Handle("POST /api/projects", d.Auth.RequireAuth(http.HandlerFunc(handleCreateProject(d))))
+		mux.Handle("GET /api/projects/{id}", d.Auth.RequireAuth(http.HandlerFunc(handleGetProject(d))))
+		mux.Handle("DELETE /api/projects/{id}", d.Auth.RequireAuth(http.HandlerFunc(handleDeleteProject(d))))
+		for _, op := range []string{"start", "stop", "restart"} {
+			mux.Handle("POST /api/projects/{id}/"+op, d.Auth.RequireAuth(http.HandlerFunc(handleProjectOp(d, op))))
+		}
+	}
 	return mux
 }
 
@@ -117,6 +131,120 @@ func handleLogout(d Deps) http.HandlerFunc {
 func handleMe(d Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"email": d.Auth.Email(r)})
+	}
+}
+
+// handleCreateProject runs the create pipeline synchronously: sandbox up,
+// repo cloned (when given), ready.
+func handleCreateProject(d Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			RepoURL string `json:"repoUrl"`
+			Branch  string `json:"branch"`
+		}
+		if r.Body != nil {
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+				return
+			}
+		}
+		id, p, err := d.Projects.Create(r.Context(), strings.TrimSpace(body.RepoURL), strings.TrimSpace(body.Branch))
+		switch {
+		case errors.Is(err, project.ErrInvalidInput):
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		case err != nil:
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		default:
+			writeJSON(w, http.StatusCreated, map[string]any{
+				"id": id, "name": p.Name, "repo": p.Repo, "branch": p.Branch,
+			})
+		}
+	}
+}
+
+func handleListProjects(d Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		entries, err := d.Projects.List()
+		if err != nil {
+			slog.Error("list projects", "err", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+			return
+		}
+		if entries == nil {
+			entries = []project.Entry{}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"projects": entries})
+	}
+}
+
+func handleGetProject(d Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		p, status, err := d.Projects.Get(r.Context(), r.PathValue("id"))
+		switch {
+		case errors.Is(err, project.ErrNotFound):
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such project"})
+		case err != nil:
+			slog.Error("get project", "err", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		default:
+			writeJSON(w, http.StatusOK, map[string]any{
+				"id": r.PathValue("id"), "name": p.Name, "repo": p.Repo,
+				"branch": p.Branch, "status": status.State,
+			})
+		}
+	}
+}
+
+// handleProjectOp serves POST /{id}/start|stop|restart.
+func handleProjectOp(d Deps, op string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		ctx := r.Context()
+		var err error
+		switch op {
+		case "start":
+			err = d.Projects.Start(ctx, id)
+		case "stop":
+			err = d.Projects.Stop(ctx, id)
+		case "restart":
+			err = d.Projects.Restart(ctx, id)
+		}
+		writeServiceErr(w, err)
+		if err == nil {
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+		}
+	}
+}
+
+func handleDeleteProject(d Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		scope := project.Scope(r.URL.Query().Get("scope"))
+		if scope == "" {
+			scope = project.ScopeAll
+		}
+		err := d.Projects.Delete(r.Context(), r.PathValue("id"), scope)
+		switch {
+		case err == nil:
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+		case errors.Is(err, project.ErrInvalidScope):
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		default:
+			writeServiceErr(w, err)
+		}
+	}
+}
+
+// writeServiceErr maps service errors to statuses; on a mapped error it
+// writes the response, otherwise it leaves it to the caller.
+func writeServiceErr(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, project.ErrNotFound):
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such project"})
+	case errors.Is(err, docker.ErrNotFound):
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "container not found"})
+	case err != nil:
+		slog.Error("project op", "err", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 	}
 }
 

@@ -62,7 +62,7 @@ func (d *Docker) AttachExec(ctx context.Context, id string, cmd []string, stdin 
 	return e.ID, ins.ExitCode, nil
 }
 
-// ResizeTTY resizes the TTY of a running exec (Phase 7 terminal transport).
+// ResizeTTY resizes the TTY of a running interactive exec (the web terminal).
 func (d *Docker) ResizeTTY(ctx context.Context, execID string, height, width int) error {
 	if err := d.c.ResizeExecTTY(execID, height, width); err != nil {
 		return fmt.Errorf("resize exec %s: %w", execID, err)

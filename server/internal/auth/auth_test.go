@@ -3,6 +3,7 @@ package auth
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -224,6 +225,49 @@ func TestMailerMocked(t *testing.T) {
 	svc := New("me@example.com", []byte(testSecret), m)
 	if err := svc.RequestPIN(context.Background(), "me@example.com"); err != nil {
 		t.Fatalf("request pin: %v", err)
+	}
+}
+
+// SetCookie must mark the session cookie Secure whenever the request arrived
+// encrypted — directly over TLS or via a reverse proxy reporting https — so
+// the cookie never rides plaintext HTTP in production.
+func TestSetCookieSecureFlag(t *testing.T) {
+	svc, _ := newService(t)
+	cases := []struct {
+		name      string
+		tls       bool
+		forwarded string
+		want      bool
+	}{
+		{"plain http dev", false, "", false},
+		{"direct tls", true, "", true},
+		{"behind https proxy", false, "https", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			if tc.tls {
+				req.TLS = &tls.ConnectionState{}
+			}
+			if tc.forwarded != "" {
+				req.Header.Set("X-Forwarded-Proto", tc.forwarded)
+			}
+			rec := httptest.NewRecorder()
+			svc.SetCookie(rec, req, "tok")
+
+			var got *http.Cookie
+			for _, c := range rec.Result().Cookies() {
+				if c.Name == CookieName {
+					got = c
+				}
+			}
+			if got == nil {
+				t.Fatal("no session cookie set")
+			}
+			if got.Secure != tc.want {
+				t.Fatalf("Secure = %v, want %v", got.Secure, tc.want)
+			}
+		})
 	}
 }
 

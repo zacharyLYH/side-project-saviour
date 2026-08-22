@@ -1,6 +1,8 @@
 # test/fixtures
 
-Tiny, network-free fixtures so harness flows work on a laptop: minimal
-Dockerfiles (alpine + node), a sample "hello" repo, and fake CLI scripts.
-First used by Phase 3 (Docker control plane integration tests) and Phase 6
-(project create pipeline). See `docs/plan.md`.
+Tiny, network-free fixtures so harness flows work on a laptop: a minimal
+Dockerfile (alpine + python3 + iproute2) for the Docker control-plane
+integration tests, and fake CLI scripts for harness phases. The Phase 6
+create-pipeline gate builds its throwaway fixture git repo at runtime and
+serves it with `git daemon`; the sandbox image itself lives in
+`server/sandbox/`. See `docs/plan.md`.

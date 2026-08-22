@@ -20,7 +20,7 @@ const (
 	EnvDataDir    = "SPS_DATA_DIR"    // where all state lives; default ./data
 	EnvBind       = "SPS_BIND"        // listen address; default :8080
 	EnvLoginEmail = "SPS_LOGIN_EMAIL" // recipient of login PINs (required)
-	EnvJWTSecret  = "SPS_JWT_SECRET"  // signing key; auto-generated + persisted when unset (Phase 4)
+	EnvJWTSecret  = "SPS_JWT_SECRET"  // signing key; auto-generated + persisted when unset
 	EnvDockerSock = "SPS_DOCKER_SOCK" // docker engine endpoint; default unix:///var/run/docker.sock
 
 	EnvSMTPHost = "SMTP_HOST"     // Google SMTP by default
@@ -62,12 +62,16 @@ type Config struct {
 }
 
 // Load reads configuration from the process environment, layering a `.env`
-// file from the working directory underneath so host runs work without
-// exporting anything. Real environment variables always win, so compose and
-// CI behavior is unchanged.
+// file underneath (working directory, then its parent — the repo root when
+// running inside server/) so host runs work without exporting anything.
+// Real environment variables always win, so compose and CI behavior is
+// unchanged.
 func Load() (*Config, error) {
 	env := os.Environ()
 	if err := appendDotEnv(&env, ".env"); err != nil {
+		return nil, err
+	}
+	if err := appendDotEnv(&env, "../.env"); err != nil {
 		return nil, err
 	}
 	return load(env)
