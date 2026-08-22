@@ -58,7 +58,7 @@ test.describe('desktop', () => {
     await page.getByRole('button', { name: 'Terminal' }).click()
     await typeUntilRendered(page)
 
-    await expect(page).toHaveScreenshot('terminal-desktop.png', { maxDiffPixelRatio: 0.02 })
+    await expect(page).toHaveScreenshot('terminal-desktop.png')
 
     await page.keyboard.press('Enter')
     await page.keyboard.type('exit')
@@ -76,6 +76,6 @@ test.describe('phone', () => {
     await page.getByRole('button', { name: 'Terminal' }).click()
     await typeUntilRendered(page)
 
-    await expect(page).toHaveScreenshot('terminal-phone.png', { maxDiffPixelRatio: 0.02 })
+    await expect(page).toHaveScreenshot('terminal-phone.png')
   })
 })

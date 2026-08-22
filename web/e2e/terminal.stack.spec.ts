@@ -12,6 +12,8 @@ import { expect, test, type Page } from '@playwright/test'
 // path IS the test path now.
 
 test('login, create a project in the UI, open its terminal, type', async ({ page }) => {
+  // the real Go server is only booted when SPS_STACK=1 (see playwright.config)
+  test.skip(process.env.SPS_STACK !== '1', 'run with SPS_STACK=1 to boot the stack')
   await page.goto('/')
 
   // --- real login via console-mailer PIN ---
